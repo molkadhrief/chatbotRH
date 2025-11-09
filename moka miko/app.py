@@ -179,6 +179,7 @@ Answer:"""
             print(response)
             print("-" * 50)
 
+
 # === Exemple d'utilisation ===
 if __name__ == "__main__":
    
