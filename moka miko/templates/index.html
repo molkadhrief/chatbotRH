@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Assistant RH Intelligent - ESPRIT</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --esprit-red: #DC143C;
+            --esprit-dark-red: #B91C3C;
+            --esprit-light-red: #FEF2F2;
+            --esprit-gray: #6B7280;
+            --esprit-light-gray: #F3F4F6;
+            --esprit-dark-gray: #374151;
+            --esprit-white: #FFFFFF;
+            --shadow: 0 4px 20px rgba(220, 20, 60, 0.1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, var(--esprit-light-gray) 0%, var(--esprit-white) 100%);
+            min-height: 100vh;
+            color: var(--esprit-dark-gray);
+        }
+
+        .header {
+            background: linear-gradient(135deg, var(--esprit-red) 0%, var(--esprit-dark-red) 100%);
+            color: var(--esprit-white);
+            padding: 1.5rem 0;
+            box-shadow: var(--shadow);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grid" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M 10 0 L 0 0 0 10" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="0.5"/></pattern></defs><rect width="100" height="100" fill="url(%23grid)"/></svg>') repeat;
+            pointer-events: none;
+        }
+
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 2rem;
+            position: relative;
+            z-index: 1;
+        }
+
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .logo {
+            width: 60px;
+            height: 60px;
+            background: var(--esprit-white);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: var(--esprit-red);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+
+        .header-title {
+            font-size: 2.2rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .header-subtitle {
+            font-size: 1.1rem;
+            opacity: 0.95;
+            font-weight: 300;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: -2rem auto 2rem;
+            padding: 0 2rem;
+            position: relative;
+            z-index: 2;
+        }
+
+        .main-card {
+            background: var(--esprit-white);
+            border-radius: 20px;
+            box-shadow: var(--shadow);
+            overflow: hidden;
+            border: 1px solid rgba(220, 20, 60, 0.1);
+        }
+
+        .card-header {
+            background: linear-gradient(135deg, var(--esprit-light-red) 0%, var(--esprit-white) 100%);
+            padding: 2rem;
+            border-bottom: 2px solid var(--esprit-light-gray);
+        }
+
+        .card-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--esprit-dark-gray);
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .card-title i {
+            color: var(--esprit-red);
+            font-size: 1.8rem;
+        }
+
+        .chat-container {
+            height: 500px;
+            overflow-y: auto;
+            padding: 2rem;
+            background: var(--esprit-white);
+            border-bottom: 1px solid var(--esprit-light-gray);
+        }
+
+        .message {
+            margin-bottom: 1.5rem;
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .user-message {
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .user-message .message-content {
+            background: linear-gradient(135deg, var(--esprit-red) 0%, var(--esprit-dark-red) 100%);
+            color: var(--esprit-white);
+            padding: 1rem 1.5rem;
+            border-radius: 20px 20px 5px 20px;
+            max-width: 70%;
+            box-shadow: 0 2px 10px rgba(220, 20, 60, 0.2);
+            font-weight: 500;
+        }
+
+        .bot-message {
+            display: flex;
+            align-items: flex-start;
+            gap: 1rem;
+        }
+
+        .bot-avatar {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--esprit-red) 0%, var(--esprit-dark-red) 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--esprit-white);
+            font-size: 1.2rem;
+            flex-shrink: 0;
+            box-shadow: 0 2px 8px rgba(220, 20, 60, 0.3);
+        }
+
+        .bot-message .message-content {
+            background: var(--esprit-light-gray);
+            color: var(--esprit-dark-gray);
+            padding: 1rem 1.5rem;
+            border-radius: 5px 20px 20px 20px;
+            max-width: 70%;
+            white-space: pre-wrap;
+            line-height: 1.6;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+
+        .input-section {
+            padding: 2rem;
+            background: var(--esprit-white);
+        }
+
+        .input-container {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        #questionInput {
+            flex: 1;
+            padding: 1rem 1.5rem;
+            border: 2px solid var(--esprit-light-gray);
+            border-radius: 25px;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            background: var(--esprit-white);
+        }
+
+        #questionInput:focus {
+            outline: none;
+            border-color: var(--esprit-red);
+            box-shadow: 0 0 0 3px rgba(220, 20, 60, 0.1);
+        }
+
+        .voice-controls {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        #voiceBtn {
+            width: 56px;
+            height: 56px;
+            background: linear-gradient(135deg, var(--esprit-red) 0%, var(--esprit-dark-red) 100%);
+            color: var(--esprit-white);
+            border: none;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 1.2rem;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 12px rgba(220, 20, 60, 0.3);
+        }
+
+        #voiceBtn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(220, 20, 60, 0.4);
+        }
+
+        #voiceBtn.listening {
+            background: linear-gradient(135deg, #EF4444, #DC2626);
+            animation: pulse 1.5s infinite;
+            box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+        }
+
+        #voiceBtn.processing {
+            background: linear-gradient(135deg, #F59E0B, #D97706);
+            animation: spin 1s linear infinite;
+        }
+
+        #voiceBtn:disabled {
+            background: var(--esprit-gray);
+            cursor: not-allowed;
+            transform: none;
+            animation: none;
+        }
+
+        #sendBtn {
+            padding: 1rem 2rem;
+            background: linear-gradient(135deg, var(--esprit-red) 0%, var(--esprit-dark-red) 100%);
+            color: var(--esprit-white);
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            box-shadow: 0 4px 12px rgba(220, 20, 60, 0.3);
+        }
+
+        #sendBtn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(220, 20, 60, 0.4);
+        }
+
+        #sendBtn:disabled {
+            background: var(--esprit-gray);
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .voice-status {
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            white-space: nowrap;
+            margin-bottom: 0.5rem;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .voice-status.show {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .examples-section {
+            margin-top: 2rem;
+            padding: 2rem;
+            background: linear-gradient(135deg, var(--esprit-light-red) 0%, var(--esprit-white) 100%);
+            border-radius: 15px;
+            border: 1px solid rgba(220, 20, 60, 0.1);
+        }
+
+        .examples-title {
+            color: var(--esprit-dark-gray);
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .examples-title i {
+            color: var(--esprit-red);
+        }
+
+        .examples-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+        }
+
+        .example-btn {
+            padding: 1rem;
+            background: var(--esprit-white);
+            border: 2px solid transparent;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 0.95rem;
+            color: var(--esprit-dark-gray);
+            transition: all 0.3s ease;
+            text-align: left;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+
+        .example-btn:hover {
+            border-color: var(--esprit-red);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(220, 20, 60, 0.2);
+            color: var(--esprit-red);
+        }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            color: var(--esprit-gray);
+            font-style: italic;
+        }
+
+        .loading-spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--esprit-light-gray);
+            border-top: 2px solid var(--esprit-red);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @keyframes pulse {
+            0% {
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+            }
+            70% {
+                box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+            }
+            100% {
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+            }
+        }
+
+        .footer {
+            text-align: center;
+            padding: 2rem;
+            color: var(--esprit-gray);
+            font-size: 0.9rem;
+        }
+
+        .esprit-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: linear-gradient(135deg, var(--esprit-red) 0%, var(--esprit-dark-red) 100%);
+            color: var(--esprit-white);
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.85rem;
+            margin-top: 1rem;
+        }
+
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 1rem 1.5rem;
+            border-radius: 10px;
+            color: white;
+            font-weight: 500;
+            z-index: 1000;
+            animation: slideIn 0.3s ease-out;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+        }
+
+        .notification.error {
+            background: linear-gradient(135deg, #EF4444, #DC2626);
+        }
+
+        .notification.info {
+            background: linear-gradient(135deg, #3B82F6, #2563EB);
+        }
+
+        .notification.success {
+            background: linear-gradient(135deg, #10B981, #059669);
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .container {
+                padding: 0 1rem;
+                margin-top: -1rem;
+            }
+            
+            .header-content {
+                padding: 0 1rem;
+            }
+            
+            .header-title {
+                font-size: 1.8rem;
+            }
+            
+            .chat-container {
+                height: 400px;
+                padding: 1rem;
+            }
+            
+            .input-container {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .voice-controls {
+                width: 100%;
+                justify-content: center;
+            }
+            
+            #questionInput, #sendBtn {
+                width: 100%;
+            }
+            
+            .examples-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Scrollbar Styling */
+        .chat-container::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .chat-container::-webkit-scrollbar-track {
+            background: var(--esprit-light-gray);
+            border-radius: 3px;
+        }
+
+        .chat-container::-webkit-scrollbar-thumb {
+            background: var(--esprit-red);
+            border-radius: 3px;
+        }
+
+        .chat-container::-webkit-scrollbar-thumb:hover {
+            background: var(--esprit-dark-red);
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="header-content">
+            <div class="logo-section">
+                <div class="logo">E</div>
+                <div>
+                    <h1 class="header-title">Assistant RH Intelligent</h1>
+                    <p class="header-subtitle">École Supérieure Privée d'Ingénierie et de Technologies</p>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="main-card">
+            <div class="card-header">
+                <h2 class="card-title">
+                    <i class="fas fa-robot"></i>
+                    Bienvenue sur votre assistant RH
+                </h2>
+            </div>
+            
+            <div class="chat-container" id="chatContainer">
+                <div class="message bot-message">
+                    <div class="bot-avatar">
+                        <i class="fas fa-robot"></i>
+                    </div>
+                    <div class="message-content">
+                        👋 Bonjour ! Je suis votre assistant RH d'ESPRIT.
+                        
+Je peux vous aider avec :
+• Vos questions sur les politiques RH
+• Les procédures de congés et absences  
+• Les informations sur la paie et les avantages
+• Les démarches administratives
+• Et bien plus encore !
+
+🎤 Utilisez le bouton microphone pour poser vos questions vocalement ou tapez directement.
+                    </div>
+                </div>
+            </div>
+            
+            <div class="input-section">
+                <div class="input-container">
+                    <input type="text" id="questionInput" placeholder="Posez votre question ici ou utilisez le microphone..." 
+                           onkeypress="if(event.key==='Enter') sendQuestion()">
+                    <div class="voice-controls" style="position: relative;">
+                        <div class="voice-status" id="voiceStatus"></div>
+                        <button id="voiceBtn" onclick="toggleVoiceRecognition()" title="Reconnaissance vocale">
+                            <i class="fas fa-microphone"></i>
+                        </button>
+                    </div>
+                    <button id="sendBtn" onclick="sendQuestion()">
+                        <i class="fas fa-paper-plane"></i>
+                        Envoyer
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="examples-section">
+            <h3 class="examples-title">
+                <i class="fas fa-lightbulb"></i>
+                Questions fréquentes
+            </h3>
+            <div class="examples-grid">
+                <button class="example-btn" onclick="setQuestion('Comment récupérer ma fiche de paie ?')">
+                    <i class="fas fa-file-invoice" style="color: var(--esprit-red); margin-right: 0.5rem;"></i>
+                    Comment récupérer ma fiche de paie ?
+                </button>
+                <button class="example-btn" onclick="setQuestion('Quand suis-je payé ?')">
+                    <i class="fas fa-calendar-alt" style="color: var(--esprit-red); margin-right: 0.5rem;"></i>
+                    Quand suis-je payé ?
+                </button>
+                <button class="example-btn" onclick="setQuestion('Comment poser des congés ?')">
+                    <i class="fas fa-umbrella-beach" style="color: var(--esprit-red); margin-right: 0.5rem;"></i>
+                    Comment poser des congés ?
+                </button>
+                <button class="example-btn" onclick="setQuestion('Quel est le remboursement pour les lunettes ?')">
+                    <i class="fas fa-glasses" style="color: var(--esprit-red); margin-right: 0.5rem;"></i>
+                    Remboursement lunettes
+                </button>
+                <button class="example-btn" onclick="setQuestion('Comment contacter le service RH ?')">
+                    <i class="fas fa-phone" style="color: var(--esprit-red); margin-right: 0.5rem;"></i>
+                    Contacter le service RH
+                </button>
+                <button class="example-btn" onclick="setQuestion('Quels sont mes droits en formation ?')">
+                    <i class="fas fa-graduation-cap" style="color: var(--esprit-red); margin-right: 0.5rem;"></i>
+                    Droits en formation
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <footer class="footer">
+        <p>© 2025 ESPRIT - École Supérieure Privée d'Ingénierie et de Technologies</p>
+        <div class="esprit-badge">
+            <i class="fas fa-shield-alt"></i>
+            Propulsé par l'IA ESPRIT
+        </div>
+    </footer>
+
+    <script>
+        // Variables pour la reconnaissance vocale
+        let recognition = null;
+        let isListening = false;
+        
+        // Initialisation de la reconnaissance vocale
+        function initSpeechRecognition() {
+            if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                recognition = new SpeechRecognition();
+                
+                recognition.continuous = false;
+                recognition.interimResults = true;
+                recognition.lang = 'fr-FR'; // Français par défaut
+                
+                recognition.onstart = function() {
+                    isListening = true;
+                    updateVoiceButton('listening');
+                    showVoiceStatus('🎤 Parlez maintenant...');
+                };
+                
+                recognition.onresult = function(event) {
+                    let transcript = '';
+                    for (let i = event.resultIndex; i < event.results.length; i++) {
+                        if (event.results[i].isFinal) {
+                            transcript = event.results[i][0].transcript;
+                        }
+                    }
+                    
+                    if (transcript) {
+                        document.getElementById('questionInput').value = transcript;
+                        updateVoiceButton('processing');
+                        showVoiceStatus('✅ Question enregistrée');
+                        setTimeout(() => hideVoiceStatus(), 2000);
+                    }
+                };
+                
+                recognition.onerror = function(event) {
+                    console.error('Erreur de reconnaissance vocale:', event.error);
+                    let errorMessage = 'Erreur de reconnaissance vocale';
+                    
+                    switch(event.error) {
+                        case 'no-speech':
+                            errorMessage = 'Aucune parole détectée';
+                            break;
+                        case 'audio-capture':
+                            errorMessage = 'Problème avec le microphone';
+                            break;
+                        case 'not-allowed':
+                            errorMessage = 'Permission microphone refusée';
+                            break;
+                        case 'network':
+                            errorMessage = 'Problème de connexion';
+                            break;
+                    }
+                    
+                    showNotification(errorMessage, 'error');
+                    updateVoiceButton('idle');
+                    hideVoiceStatus();
+                    isListening = false;
+                };
+                
+                recognition.onend = function() {
+                    isListening = false;
+                    updateVoiceButton('idle');
+                    hideVoiceStatus();
+                };
+                
+                return true;
+            } else {
+                showNotification('La reconnaissance vocale n\'est pas supportée par votre navigateur', 'error');
+                document.getElementById('voiceBtn').disabled = true;
+                return false;
+            }
+        }
+        
+        // Basculer la reconnaissance vocale
+        function toggleVoiceRecognition() {
+            if (!recognition) {
+                if (!initSpeechRecognition()) return;
+            }
+            
+            if (isListening) {
+                recognition.stop();
+            } else {
+                // Demander la permission microphone
+                navigator.mediaDevices.getUserMedia({ audio: true })
+                    .then(function(stream) {
+                        stream.getTracks().forEach(track => track.stop());
+                        recognition.start();
+                    })
+                    .catch(function(err) {
+                        showNotification('Permission microphone requise', 'error');
+                    });
+            }
+        }
+        
+        // Mettre à jour l'état du bouton vocal
+        function updateVoiceButton(state) {
+            const voiceBtn = document.getElementById('voiceBtn');
+            const icon = voiceBtn.querySelector('i');
+            
+            voiceBtn.className = '';
+            
+            switch(state) {
+                case 'listening':
+                    voiceBtn.classList.add('listening');
+                    icon.className = 'fas fa-microphone';
+                    voiceBtn.title = 'Cliquez pour arrêter l\'écoute';
+                    break;
+                case 'processing':
+                    voiceBtn.classList.add('processing');
+                    icon.className = 'fas fa-cog';
+                    voiceBtn.title = 'Traitement en cours...';
+                    break;
+                case 'idle':
+                default:
+                    icon.className = 'fas fa-microphone';
+                    voiceBtn.title = 'Reconnaissance vocale';
+                    break;
+            }
+        }
+        
+        // Afficher le statut vocal
+        function showVoiceStatus(message) {
+            const status = document.getElementById('voiceStatus');
+            status.textContent = message;
+            status.classList.add('show');
+        }
+        
+        // Masquer le statut vocal
+        function hideVoiceStatus() {
+            const status = document.getElementById('voiceStatus');
+            status.classList.remove('show');
+        }
+        
+        // Afficher une notification
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `notification ${type}`;
+            notification.textContent = message;
+            
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.remove();
+            }, 4000);
+        }
+        
+        // Fonctions existantes
+        function addMessage(message, isUser) {
+            const chatContainer = document.getElementById('chatContainer');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message ' + (isUser ? 'user-message' : 'bot-message');
+            
+            if (isUser) {
+                messageDiv.innerHTML = `<div class="message-content">${message}</div>`;
+            } else {
+                messageDiv.innerHTML = `
+                    <div class="bot-avatar">
+                        <i class="fas fa-robot"></i>
+                    </div>
+                    <div class="message-content">${message}</div>
+                `;
+            }
+            
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function setQuestion(question) {
+            document.getElementById('questionInput').value = question;
+            document.getElementById('questionInput').focus();
+        }
+
+        async function sendQuestion() {
+            const input = document.getElementById('questionInput');
+            const sendBtn = document.getElementById('sendBtn');
+            const question = input.value.trim();
+            
+            if (!question) return;
+            
+            // Afficher la question de l'utilisateur
+            addMessage(question, true);
+            
+            // Vider l'input et désactiver le bouton
+            input.value = '';
+            sendBtn.disabled = true;
+            sendBtn.innerHTML = '<div class="loading-spinner"></div> Envoi...';
+            
+            // Afficher un message de chargement
+            const chatContainer = document.getElementById('chatContainer');
+            const loadingDiv = document.createElement('div');
+            loadingDiv.className = 'message bot-message';
+            loadingDiv.innerHTML = `
+                <div class="bot-avatar">
+                    <i class="fas fa-robot"></i>
+                </div>
+                <div class="message-content loading">
+                    <div class="loading-spinner"></div>
+                    Je réfléchis à votre question...
+                </div>
+            `;
+            chatContainer.appendChild(loadingDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+            
+            try {
+                const response = await fetch('/api/ask', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ question: question })
+                });
+                
+                const data = await response.json();
+                
+                // Supprimer le message de chargement
+                loadingDiv.remove();
+                
+                if (data.success) {
+                    addMessage(data.response, false);
+                } else {
+                    addMessage('❌ Erreur: ' + data.error, false);
+                }
+            } catch (error) {
+                loadingDiv.remove();
+                addMessage('❌ Erreur de connexion: ' + error.message, false);
+            }
+            
+            // Réactiver le bouton
+            sendBtn.disabled = false;
+            sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Envoyer';
+            input.focus();
+        }
+        
+        // Initialisation au chargement de la page
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('questionInput').focus();
+            
+            // Initialiser la reconnaissance vocale si supportée
+            if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+                initSpeechRecognition();
+                showNotification('🎤 Reconnaissance vocale activée !', 'success');
+            } else {
+                document.getElementById('voiceBtn').disabled = true;
+                showNotification('Reconnaissance vocale non supportée', 'info');
+            }
+        });
+
+        // Animation au scroll
+        window.addEventListener('scroll', function() {
+            const header = document.querySelector('.header');
+            if (window.scrollY > 50) {
+                header.style.transform = 'translateY(-10px)';
+                header.style.boxShadow = '0 8px 30px rgba(220, 20, 60, 0.2)';
+            } else {
+                header.style.transform = 'translateY(0)';
+                header.style.boxShadow = '0 4px 20px rgba(220, 20, 60, 0.1)';
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,104 @@
+[
+  {
+    "category": "Paie",
+    "subcategory": "fiches_de_paie",
+    "question": "Comment récupérer ma fiche de paie du mois en cours ?",
+    "answer": "Allez sur le Portail RH > Paie > Bulletins. Les bulletins sont déposés au plus tard le 28 de chaque mois ouvré. Vous pouvez télécharger les 24 derniers mois. En cas d’anomalie, ouvrez un ticket « Paie – Bulletin manquant ».",
+    "paraphrases": [
+      "Où télécharger mon bulletin de salaire ?",
+      "Je ne trouve pas ma fiche de paie, comment faire ?",
+      "Quand mon bulletin est-il disponible sur le portail ?"
+    ]
+  },
+  {
+    "category": "Paie",
+    "subcategory": "calendrier_paie",
+    "question": "À quelle date le salaire est-il versé ?",
+    "answer": "Le virement est émis le 28 de chaque mois ouvré. Si la date tombe un week-end ou un jour férié, l’émission a lieu le jour ouvré précédent.",
+    "paraphrases": [
+      "Quelle est la date de paie ?",
+      "Quand arrive mon virement de salaire ?",
+      "Quel est le calendrier de paie ?"
+    ]
+  },
+  {
+    "category": "Paie",
+    "subcategory": "bulletin_elements",
+    "question": "Quelle différence entre salaire brut et salaire net sur la fiche de paie ?",
+    "answer": "Le brut regroupe la rémunération avant cotisations et prélèvements. Le net correspond au montant après déduction des cotisations sociales et impôts retenus à la source.",
+    "paraphrases": [
+      "Pourquoi le net est inférieur au brut ?",
+      "Que signifient brut et net sur mon bulletin ?"
+    ]
+  },
+  {
+    "category": "Paie",
+    "subcategory": "attestation_paie",
+    "question": "Comment obtenir une attestation de salaire ?",
+    "answer": "Sur le Portail RH, menu « Documents », choisissez « Attestation de salaire » puis l’année souhaitée. Le PDF signé est généré immédiatement.",
+    "paraphrases": [
+      "Où générer une attestation employeur ?",
+      "Comment télécharger une attestation de rémunération ?"
+    ]
+  },
+  {
+    "category": "Conges_RTT",
+    "subcategory": "solde_conges",
+    "question": "Comment consulter mon solde de congés et RTT ?",
+    "answer": "Portail RH > Absences. Les compteurs sont mis à jour en temps réel et les RTT s’actualisent en fin de mois.",
+    "paraphrases": [
+      "Où voir mon solde de congés ?",
+      "Comment connaître mes RTT restants ?"
+    ]
+  },
+  {
+    "category": "Conges_RTT",
+    "subcategory": "demande_conges",
+    "question": "Comment poser des congés ?",
+    "answer": "Dans Portail RH > Absences > Nouvelle demande, sélectionnez le motif et les dates. Votre manager reçoit une notification pour validation.",
+    "paraphrases": [
+      "Procédure de demande de congés",
+      "Comment soumettre des vacances pour validation ?"
+    ]
+  },
+  {
+    "category": "Conges_RTT",
+    "subcategory": "report_conges",
+    "question": "Puis-je reporter mes congés non pris ?",
+    "answer": "Jusqu’à 5 jours peuvent être reportés sur l’année suivante avec accord du manager. Au-delà, ils sont perdus sauf accord RH.",
+    "paraphrases": [
+      "Conditions de report des congés",
+      "Combien de jours puis-je reporter ?"
+    ]
+  },
+  {
+    "category": "Conges_RTT",
+    "subcategory": "absence_exceptionnelle",
+    "question": "Ai-je droit à des jours pour événements familiaux ?",
+    "answer": "Oui : mariage (4 j), naissance (3 j), décès d’un proche (3 j). Un justificatif est obligatoire.",
+    "paraphrases": [
+      "Congés pour mariage/naissance/décès",
+      "Combien de jours pour un événement familial ?"
+    ]
+  },
+  {
+    "category": "Mutuelle_Prevoyance",
+    "subcategory": "droits_optique",
+    "question": "Quels sont les plafonds de remboursement optique ?",
+    "answer": "Monture plafonnée à 120 € et verres selon la correction (env. 80 € à 250 €). Renouvellement tous les 2 ans sauf évolution de la vue.",
+    "paraphrases": [
+      "Remboursement lunettes et verres",
+      "Quelles limites pour l’optique ?"
+    ]
+  },
+  {
+    "category": "Mutuelle_Prevoyance",
+    "subcategory": "droits_dentaire",
+    "question": "La mutuelle couvre-t-elle les soins dentaires ?",
+    "answer": "Oui, jusqu’à 200 % BR pour les soins courants, avec des forfaits pour l’orthodontie et les prothèses. Devis préalable recommandé.",
+    "paraphrases": [
+      "Remboursement dentaire mutuelle",
+      "Quelle prise en charge des prothèses ?"
+    ]
+  }
+]
