@@ -17,12 +17,11 @@ pipeline {
         stage('SonarQube Analysis') {
             steps {
                 script {
-                    // 1. Définir le nom de l'installation SonarScanner configurée dans Jenkins
-                    // REMPLACEZ 'MonSonarScanner' par le nom exact de votre installation SonarScanner
-                    def scannerHome = tool 'MonSonarScanner' 
+                    // CORRECTION FINALE : Utilisation du nom exact de l'outil configuré dans Jenkins
+                    def scannerHome = tool 'SonarScanner' 
                     
                     withSonarQubeEnv('sonarqube') { 
-                        // 2. Lancer l'analyse en utilisant le chemin complet de l'exécutable
+                        // Lancement de l'analyse via le chemin complet de l'exécutable
                         sh "${scannerHome}/bin/sonar-scanner" 
                     }
                 }
@@ -31,7 +30,7 @@ pipeline {
         
         stage('Quality Gate Check') {
             steps {
-                // 3. ATTENDRE le résultat de la Quality Gate de SonarQube
+                // ATTENDRE le résultat de la Quality Gate de SonarQube
                 waitForQualityGate abortPipeline: true
             }
         }
