@@ -2,7 +2,6 @@ pipeline {
     agent any 
 
     environment {
-        // Utiliser votre credential existante
         SONAR_TOKEN = credentials('sonar-token-id')
     }
 
@@ -31,6 +30,15 @@ pipeline {
                         chmod +x gitleaks
                         ./gitleaks version
                     '''
+                    
+                    // Installation SonarScanner
+                    sh '''
+                        wget -q https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006-linux.zip
+                        unzip -q sonar-scanner-cli-5.0.1.3006-linux.zip
+                        mv sonar-scanner-5.0.1.3006-linux sonar-scanner
+                        chmod +x sonar-scanner/bin/sonar-scanner
+                        sonar-scanner/bin/sonar-scanner --version
+                    '''
                 }
                 
                 echo '--- Installation des dépendances Python ---'
@@ -42,19 +50,18 @@ pipeline {
             steps {
                 echo '🔎 3. SAST - Analyse de sécurité du code source'
                 script {
-                    withSonarQubeEnv('sonarqube') {
-                        tool 'SonarScanner'
-                        sh """
-                            sonar-scanner \
-                            -Dsonar.projectKey=projet-molka \
-                            -Dsonar.sources="moka miko" \
-                            -Dsonar.host.url=http://localhost:9000 \
-                            -Dsonar.login=${SONAR_TOKEN} \
-                            -Dsonar.projectName="Chatbot RH" \
-                            -Dsonar.projectVersion=1.0 \
-                            -Dsonar.python.version=3
-                        """
-                    }
+                    // Commande SonarScanner avec token projet
+                    sh """
+                        sonar-scanner/bin/sonar-scanner \
+                        -Dsonar.projectKey=projet-molka \
+                        -Dsonar.projectName="Chatbot RH" \
+                        -Dsonar.projectVersion=1.0 \
+                        -Dsonar.sources=. \
+                        -Dsonar.host.url=http://localhost:9000 \
+                        -Dsonar.login=${SONAR_TOKEN} \
+                        -Dsonar.python.version=3 \
+                        -Dsonar.sourceEncoding=UTF-8
+                    """
                 }
             }
         }
@@ -75,7 +82,7 @@ pipeline {
                 echo '📦 5. SCA - Scan des vulnérabilités des dépendances'
                 script {
                     catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-                        sh './trivy fs --format json --output trivy-sca-report.json --exit-code 1 --severity CRITICAL,HIGH "moka miko"'
+                        sh './trivy fs --format json --output trivy-sca-report.json --exit-code 1 --severity CRITICAL,HIGH .'
                     }
                 }
             }
