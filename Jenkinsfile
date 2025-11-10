@@ -1,6 +1,11 @@
 pipeline {
     agent any 
 
+    environment {
+        // Utiliser votre credential existante
+        SONAR_TOKEN = credentials('sonar-token-id')
+    }
+
     stages {
         stage('Checkout') {
             steps {
@@ -13,15 +18,14 @@ pipeline {
             steps {
                 echo '🛠️ 2. Installation des outils de sécurité'
                 script {
-                    // Installation Trivy (fonctionne bien)
+                    // Installation Trivy
                     sh '''
                         curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b . latest
                         ./trivy --version
                     '''
                     
-                    // Installation Gitleaks - CORRIGÉE
+                    // Installation Gitleaks
                     sh '''
-                        # Méthode directe et fiable
                         wget -q https://github.com/gitleaks/gitleaks/releases/download/v8.29.0/gitleaks_8.29.0_linux_x64.tar.gz
                         tar -xzf gitleaks_8.29.0_linux_x64.tar.gz
                         chmod +x gitleaks
@@ -45,7 +49,10 @@ pipeline {
                             -Dsonar.projectKey=projet-molka \
                             -Dsonar.sources="moka miko" \
                             -Dsonar.host.url=http://localhost:9000 \
-                            -Dsonar.login=${env.SONAR_AUTH_TOKEN}
+                            -Dsonar.login=${SONAR_TOKEN} \
+                            -Dsonar.projectName="Chatbot RH" \
+                            -Dsonar.projectVersion=1.0 \
+                            -Dsonar.python.version=3
                         """
                     }
                 }
@@ -86,18 +93,18 @@ pipeline {
 
     post {
         always {
-            echo '--- Archivage des rapports ---'
+            echo '--- Archivage des rapports de sécurité ---'
             archiveArtifacts artifacts: '*-report.json', allowEmptyArchive: true
-            echo 'Le pipeline est terminé.'
+            echo 'Le pipeline DevSecOps est terminé.'
         }
         success {
-            echo '✅ Build réussi!'
+            echo '✅ Build réussi! - Tous les contrôles de sécurité sont passés'
         }
         failure {
-            echo '❌ Build échoué!'
+            echo '❌ Build échoué! - Des erreurs critiques ont été détectées'
         }
         unstable {
-            echo '⚠️ Build instable - Vérifiez les rapports de sécurité'
+            echo '⚠️ Build instable - Des vulnérabilités de sécurité ont été trouvées'
         }
     }
 }
