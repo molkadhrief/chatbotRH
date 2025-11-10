@@ -26,8 +26,8 @@ pipeline {
                 sh './gitleaks detect --report-format json --report-path gitleaks-report.json --exit-code 1 || true'
                 
                 echo '--- Démarrage du SCA (Trivy fs) ---'
-                // Bloquant si CRITICAL ou HIGH sont trouvés
-                sh './trivy fs --format json --output trivy-sca-report.json --exit-code 1 --severity CRITICAL,HIGH .'
+                // CORRECTION : Utilisation de guillemets doubles pour le chemin "moka miko"
+                sh './trivy fs --format json --output trivy-sca-report.json --exit-code 1 --severity CRITICAL,HIGH "moka miko"'
             }
         }
 
@@ -48,7 +48,6 @@ pipeline {
                     sh 'curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b . latest'
                     
                     echo '--- Démarrage du Docker Scan (Trivy image ) ---'
-                    // Bloquant si CRITICAL ou HIGH sont trouvés
                     sh './trivy image --format json --output trivy-docker-report.json --exit-code 1 --severity CRITICAL,HIGH chatbot-rh:latest'
                 }
             }
@@ -68,7 +67,6 @@ pipeline {
             steps {
                 echo '--- Vérification de la Quality Gate ---'
                 timeout(time: 15, unit: 'MINUTES') {
-                    // Bloquant si la Quality Gate n'est pas verte
                     waitForQualityGate abortPipeline: true
                 }
             }
