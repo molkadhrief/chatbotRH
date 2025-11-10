@@ -30,46 +30,36 @@ pipeline {
                         chmod +x gitleaks
                         ./gitleaks version
                     '''
+                    
+                    // Installation de pysonar (Scanner Python officiel)
+                    sh '''
+                        echo "=== INSTALLATION PYSONAR ==="
+                        pip3 install pysonar --user
+                        echo "✅ pysonar installé"
+                    '''
                 }
             }
         }
 
         stage('SAST - SonarQube Analysis') {
             steps {
-                echo '🔎 3. SAST - Analyse SonarQube'
+                echo '🔎 3. SAST - Analyse SonarQube avec pysonar'
                 script {
                     sh """
-                        echo "=== DÉMARRAGE ANALYSE SONARQUBE ==="
+                        echo "=== DÉMARRAGE ANALYSE SONARQUBE AVEC PYSONAR ==="
                         
                         # Vérifier SonarQube
                         curl -f http://localhost:9000/api/system/status
                         
-                        # Vérifier si SonarScanner est disponible
-                        if which sonar-scanner >/dev/null 2>&1; then
-                            echo "✅ Utilisation de SonarScanner global"
-                            sonar-scanner \\
-                              -Dsonar.projectKey=projet-molka \\
-                              -Dsonar.projectName="Chatbot RH" \\
-                              -Dsonar.projectVersion=1.0 \\
-                              -Dsonar.sources=. \\
-                              -Dsonar.host.url=http://localhost:9000 \\
-                              -Dsonar.login=${SONAR_TOKEN} \\
-                              -Dsonar.python.version=3 \\
-                              -Dsonar.sourceEncoding=UTF-8
-                        else
-                            echo "⚠️ SonarScanner non disponible"
-                            echo "📊 Configuration SonarQube créée pour analyse manuelle"
-                            # Créer la configuration pour démonstration
-                            cat > sonar-project.properties << EOF
-sonar.projectKey=projet-molka
-sonar.projectName=Chatbot RH
-sonar.sources=.
-sonar.host.url=http://localhost:9000
-sonar.login=${SONAR_TOKEN}
-sonar.python.version=3
-EOF
-                            echo "✅ Projet SonarQube configuré"
-                        fi
+                        # Lancer l'analyse avec pysonar (commande officielle)
+                        echo "🚀 Lancement de l'analyse SonarQube avec pysonar..."
+                        pysonar \\
+                          --sonar-host-url=http://localhost:9000 \\
+                          --sonar-token=${SONAR_TOKEN} \\
+                          --sonar-project-key=projet-molka
+                        
+                        echo "🎉 ANALYSE SONARQUBE TERMINÉE !"
+                        echo "📊 Vérifiez le dashboard SonarQube pour les résultats"
                     """
                 }
             }
@@ -102,13 +92,12 @@ EOF
         always {
             echo '📊 Archivage des rapports de sécurité'
             archiveArtifacts artifacts: '*-report.json', allowEmptyArchive: true
-            archiveArtifacts artifacts: 'sonar-project.properties', allowEmptyArchive: true
         }
         success {
-            echo '🎉 SUCCÈS! Pipeline DevSecOps opérationnel!'
+            echo '🎉 SUCCÈS! Analyse SonarQube complète avec pysonar!'
+            echo '✅ SonarQube: Données affichées dans le dashboard'
             echo '✅ Gitleaks: Détection des secrets'
-            echo '✅ Trivy: Analyse des dépendances'
-            echo '✅ SonarQube: Intégration configurée'
+            echo '✅ Trivy: Scan des dépendances'
         }
     }
 }
