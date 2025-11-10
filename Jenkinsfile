@@ -36,7 +36,7 @@ pipeline {
                 // UTILISER withSonarQubeEnv pour que Quality Gate fonctionne
                 withSonarQubeEnv('sonar-server') {
                     script {
-                        withCredentials([string(credentialsId: 'sonar-token-molka', variable: 'SONAR_TOKEN']) {
+                        withCredentials([string(credentialsId: 'sonar-token-molka', variable: 'SONAR_TOKEN')]) {
                             sh '''
                                 echo "🚀 Lancement de l'analyse SonarQube..."
                                 sonar-scanner \
@@ -111,6 +111,12 @@ pipeline {
             echo '✅ Gitleaks: Détection des secrets'
             echo '✅ Trivy: Scan des dépendances'
             echo '📊 Résultats disponibles dans SonarQube: http://localhost:9000/dashboard?id=projet-molka'
+        }
+        failure {
+            echo '❌ ÉCHEC! Vérifiez les logs pour plus de détails'
+        }
+        unstable {
+            echo '⚠️ Pipeline instable - Des problèmes de sécurité ont été détectés'
         }
     }
 }
