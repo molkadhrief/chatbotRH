@@ -1,10 +1,7 @@
 pipeline {
     agent any
 
-    tools {
-        // La syntaxe correcte pour déclarer l'outil SonarQube Scanner
-        sonar 'SonarScanner'
-    }
+    // PAS DE SECTION 'tools' ICI. On la supprime.
 
     stages {
         stage('Checkout') {
@@ -21,14 +18,11 @@ pipeline {
 
         stage('SonarQube Analysis') {
             steps {
-                withSonarQubeEnv('sonarqube') {
-                    sh '''
-                        $SCANNER_HOME/bin/sonar-scanner \
-                        -Dsonar.projectKey=chatbot-rh \
-                        -Dsonar.sources=. \
-                        -Dsonar.host.url=http://localhost:9000 \
-                        -Dsonar.token=squ_19237b74db76d95b82d9421c07925637fe3a7a01
-                    '''
+                // On utilise directement la commande 'withSonarQubeEnv'
+                // 'sonarqube' est le nom du serveur que nous avons configuré dans Jenkins
+                withSonarQubeEnv('sonarqube') { 
+                    // On lance directement le scanner. Jenkins le trouvera.
+                    sh 'sonar-scanner' 
                 }
             }
         }
