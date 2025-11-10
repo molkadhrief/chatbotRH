@@ -4,14 +4,15 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                echo '--- Checkout du code ---'
+                echo '--- 1. Checkout du code ---'
                 checkout scm
             }
         }
 
         stage('Install Dependencies') {
             steps {
-                echo '--- Installation locale de Trivy et Gitleaks ---'
+                echo '--- 2. Installation locale de Trivy et Gitleaks ---'
+                // Installation locale de Trivy et Gitleaks sur l'agent hôte
                 sh 'curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b . latest'
                 sh 'curl -sfL https://raw.githubusercontent.com/gitleaks/gitleaks/master/scripts/install.sh | sh'
                 echo '--- Installation des dépendances Python ---'
@@ -21,17 +22,18 @@ pipeline {
 
         stage('Code Security Scan (Gitleaks & Trivy SCA )') {
             steps {
-                echo '--- Démarrage du Secrets Scan (Gitleaks) ---'
-                // TEMPORAIREMENT NON-BLOQUANT (pour passer le secret)
-                sh './gitleaks detect --report-format json --report-path gitleaks-report.json --exit-code 1 || true'
+                echo '--- 3. Secrets Scan (Gitleaks) ---'
+                // Règle de blocage Gitleaks: Échec si un secret est trouvé
+                sh './gitleaks detect --report-format json --report-path gitleaks-report.json --exit-code 1'
                 
-                echo '--- Démarrage du SCA (Trivy fs) ---'
-                // Bloquant si CRITICAL ou HIGH sont trouvés
-                sh './trivy fs --format json --output trivy-sca-report.json --exit-code 1 --severity CRITICAL,HIGH "moka miko" || true'
+                echo '--- 4. SCA (Trivy fs) ---'
+                // Règle de blocage Trivy SCA: Échec si CRITICAL ou HIGH sont trouvés
+                sh './trivy fs --format json --output trivy-sca-report.json --exit-code 1 --severity CRITICAL,HIGH "moka miko"'
             }
         }
 
         stage('Docker Build & Scan') {
+            // Utiliser l'agent DinD (Docker-in-Docker) pour le build et le scan Docker
             agent {
                 docker {
                     image 'docker:dind'
@@ -40,23 +42,23 @@ pipeline {
             }
             steps {
                 script {
-                    echo '--- Construction de l\'image Docker (DinD) ---'
+                    echo '--- 5. Construction de l\'image Docker (DinD) ---'
                     sh 'docker build -f Dockerfile -t chatbot-rh:latest .'
                     
-                    echo '--- Installation de curl et Trivy dans le conteneur DinD ---'
+                    echo '--- 6. Installation de curl et Trivy dans le conteneur DinD ---'
                     sh 'apk add --no-cache curl'
                     sh 'curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b . latest'
                     
-                    echo '--- Démarrage du Docker Scan (Trivy image ) ---'
-                    // Bloquant si CRITICAL ou HIGH sont trouvés
-                    sh './trivy image --format json --output trivy-docker-report.json --exit-code 1 --severity CRITICAL,HIGH chatbot-rh:latest || true'
+                    echo '--- 7. Docker Scan (Trivy image ) ---'
+                    // Règle de blocage Trivy Docker: Échec si CRITICAL ou HIGH sont trouvés
+                    sh './trivy image --format json --output trivy-docker-report.json --exit-code 1 --severity CRITICAL,HIGH chatbot-rh:latest'
                 }
             }
         }
 
         stage('SonarQube Analysis') {
             steps {
-                echo '--- Démarrage de l\'analyse SonarQube ---'
+                echo '--- 8. Démarrage de l\'analyse SonarQube (SAST) ---'
                 withSonarQubeEnv('sonarqube') {
                     tool 'SonarScanner'
                     sh "sonar-scanner -Dsonar.projectKey=projet-molka -Dsonar.sources=moka\\ miko -Dsonar.host.url=http://localhost:9000 -Dsonar.login=${env.SONAR_AUTH_TOKEN}"
@@ -66,10 +68,10 @@ pipeline {
 
         stage('Quality Gate Check' ) {
             steps {
-                echo '--- Vérification de la Quality Gate ---'
+                echo '--- 9. Vérification de la Quality Gate (Blocage) ---'
                 timeout(time: 15, unit: 'MINUTES') {
-                    // NON-BLOQUANT : Le pipeline continuera même si la Quality Gate est rouge
-                    waitForQualityGate abortPipeline: false
+                    // abortPipeline: true bloque le pipeline si la Quality Gate n'est pas verte
+                    waitForQualityGate abortPipeline: true
                 }
             }
         }
@@ -77,7 +79,8 @@ pipeline {
 
     post {
         always {
-            echo '--- Archivage des rapports de sécurité ---'
+            echo '--- 10. Archivage des rapports de sécurité ---'
+            // Archivage de tous les rapports de sécurité pour le reporting
             archiveArtifacts artifacts: '*-report.json', onlyIfSuccessful: true
             echo 'Le pipeline est terminé.'
         }
