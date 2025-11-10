@@ -15,7 +15,7 @@ pipeline {
 
         stage('Install Security Tools') {
             steps {
-                echo '🛠️ 2. Installation des outils de sécurité'
+                echo '🛠️ 2. Installation de Trivy et Gitleaks'
                 script {
                     // Installation Trivy
                     sh '''
@@ -30,80 +30,38 @@ pipeline {
                         chmod +x gitleaks
                         ./gitleaks version
                     '''
-                    
-                    // Installation SonarScanner - URL GARANTIE
-                    sh '''
-                        echo "=== INSTALLATION SONARSCANNER ==="
-                        # Télécharger depuis GitHub (URL garantie)
-                        curl -L -o sonar-scanner.zip "https://github.com/SonarSource/sonar-scanner-cli/releases/download/4.8.0.2856/sonar-scanner-cli-4.8.0.2856-linux.zip"
-                        
-                        # Vérifier que c'est un vrai fichier zip
-                        file sonar-scanner.zip
-                        
-                        # Essayer différentes méthodes d'extraction
-                        if which unzip >/dev/null 2>&1; then
-                            unzip -q sonar-scanner.zip
-                        else
-                            # Méthode alternative si unzip n'est pas disponible
-                            echo "unzip non disponible, utilisation de Python"
-                            python3 -c "import zipfile; zipfile.ZipFile('sonar-scanner.zip').extractall()" || \
-                            echo "Échec extraction, continuation sans SonarScanner"
-                        fi
-                        
-                        # Vérifier l'installation
-                        if [ -f "sonar-scanner-4.8.0.2856-linux/bin/sonar-scanner" ]; then
-                            mv sonar-scanner-4.8.0.2856-linux sonar-scanner
-                            chmod +x sonar-scanner/bin/sonar-scanner
-                            sonar-scanner/bin/sonar-scanner --version
-                        else
-                            echo "⚠️ SonarScanner non installé, mais le pipeline continue"
-                        fi
-                    '''
                 }
             }
         }
 
         stage('SAST - SonarQube Analysis') {
             steps {
-                echo '🔎 3. SAST - Analyse SonarQube'
+                echo '🔎 3. SAST - Analyse SonarQube (Plugin Jenkins)'
                 script {
-                    sh """
-                        echo "=== VÉRIFICATION SONARQUBE ==="
-                        curl -f http://localhost:9000/api/system/status
-                        echo ""
-                        
-                        # Essayer SonarScanner si installé, sinon méthode alternative
-                        if [ -f "sonar-scanner/bin/sonar-scanner" ]; then
-                            echo "=== ANALYSE AVEC SONARSCANNER ==="
-                            sonar-scanner/bin/sonar-scanner \\
-                              -Dsonar.projectKey=projet-molka \\
-                              -Dsonar.projectName="Chatbot RH" \\
-                              -Dsonar.sources=. \\
-                              -Dsonar.host.url=http://localhost:9000 \\
-                              -Dsonar.login=${SONAR_TOKEN} \\
-                              -Dsonar.python.version=3
-                        else
-                            echo "=== MÉTHODE ALTERNATIVE ==="
-                            echo "📝 Configuration SonarQube créée pour analyse manuelle"
-                            cat > sonar-project.properties << EOF
-sonar.projectKey=projet-molka
-sonar.projectName=Chatbot RH
-sonar.sources=.
-sonar.host.url=http://localhost:9000
-sonar.login=${SONAR_TOKEN}
-sonar.python.version=3
-EOF
-                            echo "✅ Projet configuré pour SonarQube"
-                            echo "🔍 Pour analyse complète, installez SonarScanner manuellement"
-                        fi
-                    """
+                    // Vérifier que SonarScanner est disponible
+                    sh 'sonar-scanner --version || echo "SonarScanner non trouvé"'
+                    
+                    // Analyse avec le plugin SonarScanner
+                    withSonarQubeEnv('sonarqube') {
+                        sh """
+                            sonar-scanner \
+                            -Dsonar.projectKey=projet-molka \
+                            -Dsonar.projectName="Chatbot RH" \
+                            -Dsonar.projectVersion=1.0 \
+                            -Dsonar.sources=. \
+                            -Dsonar.host.url=http://localhost:9000 \
+                            -Dsonar.login=${SONAR_TOKEN} \
+                            -Dsonar.python.version=3 \
+                            -Dsonar.sourceEncoding=UTF-8
+                        """
+                    }
                 }
             }
         }
 
         stage('Secrets Detection') {
             steps {
-                echo '🔐 4. Détection des secrets - GITLEAKS'
+                echo '🔐 4. Détection des secrets - Gitleaks'
                 script {
                     catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
                         sh './gitleaks detect --source . --report-format json --report-path gitleaks-report.json --exit-code 0'
@@ -114,7 +72,7 @@ EOF
 
         stage('SCA - Dependency Scan') {
             steps {
-                echo '📦 5. SCA - Scan des dépendances - TRIVY'
+                echo '📦 5. SCA - Scan des dépendances - Trivy'
                 script {
                     catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
                         sh './trivy fs --format json --output trivy-sca-report.json --exit-code 0 --severity CRITICAL,HIGH .'
@@ -122,20 +80,30 @@ EOF
                 }
             }
         }
+
+        stage('Quality Gate Check') {
+            steps {
+                echo '🚨 6. Vérification Quality Gate'
+                timeout(time: 10, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: false
+                }
+            }
+        }
     }
 
     post {
         always {
-            echo '=== ARCHIVAGE DES RAPPORTS ==='
+            echo '📊 Archivage des rapports de sécurité'
             archiveArtifacts artifacts: '*-report.json', allowEmptyArchive: true
-            archiveArtifacts artifacts: 'sonar-project.properties', allowEmptyArchive: true
-            echo '✅ Pipeline DevSecOps terminé avec succès!'
         }
         success {
-            echo '🎉 SUCCÈS! Pipeline DevSecOps opérationnel!'
-            echo '📊 Gitleaks: Détection des secrets'
-            echo '🔍 Trivy: Analyse des dépendances'
-            echo '🌐 SonarQube: Configuration prête'
+            echo '🎉 SUCCÈS! Pipeline DevSecOps complet exécuté!'
+            echo '✅ SonarQube: Analyse SAST terminée'
+            echo '✅ Gitleaks: Détection des secrets'
+            echo '✅ Trivy: Scan des dépendances'
+        }
+        unstable {
+            echo '⚠️ Build instable - Des vulnérabilités ont été détectées'
         }
     }
 }
