@@ -1,10 +1,6 @@
 pipeline {
     agent any 
 
-    environment {
-        SONAR_TOKEN = credentials('sonar-token-id')
-    }
-
     stages {
         stage('Checkout') {
             steps {
@@ -30,44 +26,44 @@ pipeline {
                         chmod +x gitleaks
                         ./gitleaks version
                     '''
-                    
-                    // Installation de pysonar (Scanner Python officiel)
-                    sh '''
-                        echo "=== INSTALLATION PYSONAR ==="
-                        pip3 install pysonar --user
-                        echo "✅ pysonar installé"
-                    '''
                 }
             }
         }
 
         stage('SAST - SonarQube Analysis') {
             steps {
-                echo '🔎 3. SAST - Analyse SonarQube avec pysonar'
-                script {
-                    sh """
-                        echo "=== DÉMARRAGE ANALYSE SONARQUBE AVEC PYSONAR ==="
+                echo '🔎 3. SAST - Analyse SonarQube'
+                withSonarQubeEnv('sonar-server') {
+                    sh '''
+                        echo "🚀 Lancement de l'analyse SonarQube..."
+                        # Vérifier si sonar-scanner est disponible
+                        which sonar-scanner
+                        sonar-scanner --version
                         
-                        # Vérifier SonarQube
-                        curl -f http://localhost:9000/api/system/status
-                        
-                        # Lancer l'analyse avec pysonar (commande officielle)
-                        echo "🚀 Lancement de l'analyse SonarQube avec pysonar..."
-                        pysonar \\
-                          --sonar-host-url=http://localhost:9000 \\
-                          --sonar-token=${SONAR_TOKEN} \\
-                          --sonar-project-key=projet-molka
-                        
-                        echo "🎉 ANALYSE SONARQUBE TERMINÉE !"
-                        echo "📊 Vérifiez le dashboard SonarQube pour les résultats"
-                    """
+                        # Lancer l'analyse
+                        sonar-scanner \
+                        -Dsonar.projectKey=projet-molka \
+                        -Dsonar.sources=. \
+                        -Dsonar.projectName="Projet Molka" \
+                        -Dsonar.projectVersion=1.0 \
+                        -Dsonar.sourceEncoding=UTF-8
+                    '''
+                }
+            }
+        }
+
+        stage('Quality Gate') {
+            steps {
+                echo '📊 4. Vérification Quality Gate'
+                timeout(time: 1, unit: 'HOURS') {
+                    waitForQualityGate abortPipeline: true
                 }
             }
         }
 
         stage('Secrets Detection') {
             steps {
-                echo '🔐 4. Détection des secrets - Gitleaks'
+                echo '🔐 5. Détection des secrets - Gitleaks'
                 script {
                     catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
                         sh './gitleaks detect --source . --report-format json --report-path gitleaks-report.json --exit-code 0'
@@ -78,7 +74,7 @@ pipeline {
 
         stage('SCA - Dependency Scan') {
             steps {
-                echo '📦 5. SCA - Scan des dépendances - Trivy'
+                echo '📦 6. SCA - Scan des dépendances - Trivy'
                 script {
                     catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
                         sh './trivy fs --format json --output trivy-sca-report.json --exit-code 0 --severity CRITICAL,HIGH .'
@@ -94,10 +90,7 @@ pipeline {
             archiveArtifacts artifacts: '*-report.json', allowEmptyArchive: true
         }
         success {
-            echo '🎉 SUCCÈS! Analyse SonarQube complète avec pysonar!'
-            echo '✅ SonarQube: Données affichées dans le dashboard'
-            echo '✅ Gitleaks: Détection des secrets'
-            echo '✅ Trivy: Scan des dépendances'
+            echo '🎉 SUCCÈS! Pipeline terminé avec succès!'
         }
     }
 }
