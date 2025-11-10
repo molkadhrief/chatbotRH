@@ -17,16 +17,12 @@ pipeline {
         stage('SonarQube Analysis') {
             steps {
                 script {
-                    // 1. Localise l'installation de SonarScanner
                     def scannerHome = tool 'SonarScanner' 
                     
-                    // 2. INJECTION DIRECTE DU JETON EXISTANT
-                    // L'ID 'sonar-token-id' doit correspondre à l'ID qui existe déjà dans Jenkins.
-                    withCredentials([string(credentialsId: 'sonar-token-id', variable: 'SONAR_TOKEN')]) {
-                        withSonarQubeEnv('sonarqube') { 
-                            // 3. Exécute le scanner. Il utilisera la variable SONAR_TOKEN injectée.
-                            sh "${scannerHome}/bin/sonar-scanner" 
-                        }
+                    // Le withSonarQubeEnv doit maintenant injecter le token
+                    // car il est lié dans la configuration du serveur Jenkins.
+                    withSonarQubeEnv('sonarqube') { 
+                        sh "${scannerHome}/bin/sonar-scanner" 
                     }
                 }
             }
@@ -34,7 +30,7 @@ pipeline {
         
         stage('Quality Gate Check') {
             steps {
-                // 4. Attend le résultat de l'analyse
+                // Cette étape utilise le token injecté par la configuration du serveur
                 waitForQualityGate abortPipeline: true
             }
         }
