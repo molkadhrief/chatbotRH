@@ -10,19 +10,25 @@ pipeline {
 
         stage('Install Dependencies') {
             steps {
-                // Le chemin est correctement entre guillemets
                 sh 'pip3 install -r "moka miko/requirements.txt" --no-cache-dir'
             }
         }
 
         stage('SonarQube Analysis') {
             steps {
-                // Utilisation de la syntaxe confirmée par le Snippet Generator
                 withSonarQubeEnv('sonarqube') { 
-                    // La commande simple 'sonar-scanner' suffit, car withSonarQubeEnv
-                    // va préparer le chemin vers l'exécutable.
+                    // 1. Lancer l'analyse
                     sh 'sonar-scanner' 
                 }
+            }
+        }
+        
+        stage('Quality Gate Check') {
+            steps {
+                // 2. ATTENDRE le résultat de la Quality Gate de SonarQube
+                // Cette étape va bloquer le pipeline jusqu'à ce que SonarQube
+                // ait traité l'analyse et renvoyé le statut (PASSED ou FAILED).
+                waitForQualityGate abortPipeline: true
             }
         }
     }
