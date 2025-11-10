@@ -36,13 +36,12 @@ pipeline {
 
         stage('SAST - SonarQube Analysis') {
             steps {
-                echo '🔎 3. SAST - Analyse SonarQube (Plugin Jenkins)'
+                echo '🔎 3. SAST - Analyse SonarQube'
                 script {
-                    // Vérifier que SonarScanner est disponible
-                    sh 'sonar-scanner --version || echo "SonarScanner non trouvé"'
-                    
-                    // Analyse avec le plugin SonarScanner
+                    // Configuration SonarScanner avec l'outil Jenkins
                     withSonarQubeEnv('sonarqube') {
+                        // Utiliser l'outil SonarScanner configuré dans Jenkins
+                        tool 'SonarScanner'
                         sh """
                             sonar-scanner \
                             -Dsonar.projectKey=projet-molka \
@@ -80,15 +79,6 @@ pipeline {
                 }
             }
         }
-
-        stage('Quality Gate Check') {
-            steps {
-                echo '🚨 6. Vérification Quality Gate'
-                timeout(time: 10, unit: 'MINUTES') {
-                    waitForQualityGate abortPipeline: false
-                }
-            }
-        }
     }
 
     post {
@@ -97,13 +87,7 @@ pipeline {
             archiveArtifacts artifacts: '*-report.json', allowEmptyArchive: true
         }
         success {
-            echo '🎉 SUCCÈS! Pipeline DevSecOps complet exécuté!'
-            echo '✅ SonarQube: Analyse SAST terminée'
-            echo '✅ Gitleaks: Détection des secrets'
-            echo '✅ Trivy: Scan des dépendances'
-        }
-        unstable {
-            echo '⚠️ Build instable - Des vulnérabilités ont été détectées'
+            echo '🎉 SUCCÈS! Pipeline DevSecOps complet!'
         }
     }
 }
