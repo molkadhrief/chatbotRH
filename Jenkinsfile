@@ -30,23 +30,51 @@ pipeline {
                         chmod +x gitleaks
                         ./gitleaks version
                     '''
+                    
+                    // Installation SonarScanner POUR DE VRAI
+                    sh '''
+                        echo "=== INSTALLATION SONARSCANNER ==="
+                        # Télécharger depuis une source fiable
+                        curl -L -o sonar-scanner.zip "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-4.8.0.2856-linux.zip"
+                        
+                        # Installer unzip si nécessaire
+                        which unzip || (apt-get update && apt-get install -y unzip)
+                        
+                        # Extraire
+                        unzip -q sonar-scanner.zip
+                        mv sonar-scanner-4.8.0.2856-linux sonar-scanner
+                        chmod +x sonar-scanner/bin/sonar-scanner
+                        
+                        echo "SonarScanner installé :"
+                        sonar-scanner/bin/sonar-scanner --version
+                    '''
                 }
             }
         }
 
         stage('SAST - SonarQube Analysis') {
             steps {
-                echo '🔎 3. SAST - Analyse SonarQube'
+                echo '🔎 3. SAST - ANALYSE RÉELLE SonarQube'
                 script {
-                    // Commande SonarQube DIRECTE sans script
                     sh """
-                        echo "🔍 Démarrage de l'analyse SonarQube..."
+                        echo "=== DÉMARRAGE ANALYSE SONARQUBE ==="
+                        
+                        # Vérifier que SonarQube est accessible
                         curl -f http://localhost:9000/api/system/status
-                        echo "📝 Création du projet dans SonarQube..."
-                        curl -X POST "http://localhost:9000/api/projects/create" \\
-                          -u '${SONAR_TOKEN}:' \\
-                          -d "project=projet-molka&name=Chatbot RH" || echo "ℹ️ Projet existe déjà"
-                        echo "✅ Analyse SonarQube simulée - Vérifiez le dashboard!"
+                        
+                        # EXÉCUTER LA VRAIE ANALYSE
+                        sonar-scanner/bin/sonar-scanner \\
+                          -Dsonar.projectKey=projet-molka \\
+                          -Dsonar.projectName="Chatbot RH" \\
+                          -Dsonar.sources=. \\
+                          -Dsonar.host.url=http://localhost:9000 \\
+                          -Dsonar.login=${SONAR_TOKEN} \\
+                          -Dsonar.python.version=3 \\
+                          -Dsonar.sourceEncoding=UTF-8 \\
+                          -Dsonar.scm.disabled=true
+                        
+                        echo "✅ ANALYSE SONARQUBE TERMINÉE !"
+                        echo "📊 Allez vérifier les résultats sur http://localhost:9000"
                     """
                 }
             }
@@ -54,7 +82,7 @@ pipeline {
 
         stage('Secrets Detection') {
             steps {
-                echo '🔐 4. Détection des secrets'
+                echo '🔐 4. Détection des secrets - GITLEAKS'
                 script {
                     catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
                         sh './gitleaks detect --source . --report-format json --report-path gitleaks-report.json --exit-code 0'
@@ -65,7 +93,7 @@ pipeline {
 
         stage('SCA - Dependency Scan') {
             steps {
-                echo '📦 5. SCA - Scan des dépendances'
+                echo '📦 5. SCA - Scan des dépendances - TRIVY'
                 script {
                     catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
                         sh './trivy fs --format json --output trivy-sca-report.json --exit-code 0 --severity CRITICAL,HIGH .'
@@ -77,15 +105,13 @@ pipeline {
 
     post {
         always {
-            echo '--- Archivage des rapports ---'
+            echo '=== ARCHIVAGE DES RAPPORTS ==='
             archiveArtifacts artifacts: '*-report.json', allowEmptyArchive: true
             echo '✅ Pipeline DevSecOps terminé avec succès!'
         }
         success {
-            echo '🎉 SUCCÈS! Vérifiez SonarQube pour les données!'
-        }
-        unstable {
-            echo '⚠️ Build instable - Des vulnérabilités trouvées'
+            echo '🎉 SUCCÈS! Analyse SonarQube complète effectuée!'
+            echo '📊 Vérifiez http://localhost:9000 pour les résultats détaillés'
         }
     }
 }
