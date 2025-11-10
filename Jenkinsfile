@@ -11,7 +11,7 @@ pipeline {
         stage('Install Dependencies') {
             steps {
                 echo '--- Installation locale de Trivy et Gitleaks ---'
-                // Installation locale de Trivy et Gitleaks
+                // Installation locale de Trivy et Gitleaks sur l'agent hôte
                 sh 'curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b . latest'
                 sh 'curl -sfL https://raw.githubusercontent.com/gitleaks/gitleaks/master/scripts/install.sh | sh'
                 echo '--- Installation des dépendances Python ---'
@@ -19,53 +19,68 @@ pipeline {
             }
         }
 
-        stage('Build Docker Image' ) {
-            // Utiliser un agent Docker-in-Docker (DinD) pour ce stage
+        stage('Code Security Scan (Gitleaks & Trivy SCA )') {
+            steps {
+                echo '--- Démarrage du Secrets Scan (Gitleaks) ---'
+                sh './gitleaks detect --report-format json --report-path gitleaks-report.json --exit-code 0 || true'
+                
+                echo '--- Démarrage du SCA (Trivy fs) ---'
+                sh './trivy fs --format json --output trivy-sca-report.json . || true'
+            }
+        }
+
+        stage('Docker Build & Scan') {
+            // Utiliser l'agent DinD pour le build et le scan Docker
             agent {
                 docker {
                     image 'docker:dind'
-                    // Le mode privilégié est nécessaire pour que le conteneur puisse démarrer le démon Docker interne
                     args '--privileged'
                 }
             }
             steps {
-                echo '--- Construction de l\'image Docker (DinD) ---'
-                // Le démon Docker est maintenant disponible à l'intérieur de ce conteneur
-                sh 'docker build -t chatbot-rh:latest .'
-            }
-        }
-
-        stage('Security Scan') {
-            // Revenir à l'agent par défaut pour utiliser les outils installés localement
-            agent any
-            steps {
                 script {
-                    echo '--- Démarrage du Secrets Scan (Gitleaks) ---'
-                    // Les scans continuent même en cas d'erreur (|| true)
-                    sh './gitleaks detect --report-format json --report-path gitleaks-report.json --exit-code 0 || true'
+                    // 1. Construction de l'image
+                    echo '--- Construction de l\'image Docker (DinD) ---'
+                    sh 'docker build -t chatbot-rh:latest .'
                     
-                    echo '--- Démarrage du SCA (Trivy) ---'
-                    sh './trivy fs --format json --output trivy-sca-report.json . || true'
+                    // 2. Installation de Trivy dans le conteneur DinD (nécessaire pour le scan)
+                    echo '--- Installation de Trivy dans le conteneur DinD ---'
+                    sh 'curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b . latest'
                     
-                    echo '--- Démarrage du Docker Scan (Trivy) ---'
-                    // L'image construite dans le stage précédent n'est PAS disponible ici
-                    // car elle a été construite dans un conteneur DinD temporaire.
-                    // Nous devons reconstruire l'image pour le scan, ou utiliser l'option --input de Trivy.
-                    
-                    // Pour simplifier, nous allons reconstruire l'image DANS CE STAGE
-                    // en utilisant le même agent DinD, puis la scanner.
-                    
-                    // **ATTENTION :** Le stage 'Security Scan' doit être modifié pour utiliser DinD.
-                    // Je vais donc fusionner le build et le scan Docker dans un seul stage.
+                    // 3. Scan de l'image
+                    echo '--- Démarrage du Docker Scan (Trivy image ) ---'
+                    // Le binaire Trivy est maintenant dans le répertoire courant du conteneur DinD
+                    sh './trivy image --format json --output trivy-docker-report.json chatbot-rh:latest || true'
                 }
             }
         }
-        
-        // ... (Stages SonarQube Analysis et Quality Gate Check inchangés) ...
+
+        stage('SonarQube Analysis') {
+            steps {
+                echo '--- Démarrage de l\'analyse SonarQube ---'
+                withSonarQubeEnv('sonarqube') {
+                    // Utilisation de la variable d'environnement SONAR_TOKEN
+                    tool 'SonarScanner'
+                    sh "sonar-scanner -Dsonar.projectKey=projet-molka -Dsonar.sources=moka\\ miko -Dsonar.host.url=http://localhost:9000 -Dsonar.login=${env.SONAR_AUTH_TOKEN}"
+                }
+            }
+        }
+
+        stage('Quality Gate Check' ) {
+            steps {
+                echo '--- Vérification de la Quality Gate ---'
+                // Utilisation de la fonction waitForQualityGate fournie par le plugin SonarQube
+                timeout(time: 15, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
     }
 
     post {
         always {
+            // Archivage des rapports de sécurité pour le reporting
+            archiveArtifacts artifacts: '*-report.json', onlyIfSuccessful: true
             echo 'Le pipeline est terminé.'
         }
     }
