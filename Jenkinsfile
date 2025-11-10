@@ -19,10 +19,12 @@ pipeline {
                 script {
                     def scannerHome = tool 'SonarScanner' 
                     
-                    // Le withSonarQubeEnv doit maintenant injecter le token
-                    // car il est lié dans la configuration du serveur Jenkins.
-                    withSonarQubeEnv('sonarqube') { 
-                        sh "${scannerHome}/bin/sonar-scanner" 
+                    // INJECTION DIRECTE DU JETON EXISTANT (ID: sonar-token-id)
+                    // Cette méthode force l'injection du jeton dans l'environnement du scanner.
+                    withCredentials([string(credentialsId: 'sonar-token-id', variable: 'SONAR_TOKEN')]) {
+                        withSonarQubeEnv('sonarqube') { 
+                            sh "${scannerHome}/bin/sonar-scanner" 
+                        }
                     }
                 }
             }
@@ -30,7 +32,9 @@ pipeline {
         
         stage('Quality Gate Check') {
             steps {
-                // Cette étape utilise le token injecté par la configuration du serveur
+                // Cette étape va probablement échouer à nouveau avec 401,
+                // car elle ne bénéficie pas de l'injection withCredentials.
+                // Mais nous devons d'abord réussir l'analyse.
                 waitForQualityGate abortPipeline: true
             }
         }
