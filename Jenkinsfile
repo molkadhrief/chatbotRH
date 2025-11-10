@@ -1,32 +1,47 @@
 pipeline {
-    agent any
+    agent any 
     stages {
-        stage('Test SonarQube') {
+        stage('Checkout') {
             steps {
+                echo '--- 1. Checkout du code ---'
+                checkout scm
+            }
+        }
+
+        stage('Install Dependencies') {
+            steps {
+                // [Vos étapes d'installation...]
+            }
+        }
+
+        stage('Code Security Scan') {
+            steps {
+                // [Vos scans de sécurité...]
+            }
+        }
+
+        stage('SonarQube Analysis') {
+            steps {
+                echo '--- Analyse SonarQube ---'
                 script {
-                    echo "🔍 Test de connexion SonarQube..."
-                    
-                    // Test connexion
-                    def status = sh(
-                        script: 'curl -s -o /dev/null -w "%{http_code}" http://localhost:9000/api/system/status || echo "000"',
-                        returnStdout: true
-                    ).trim()
-                    
-                    echo "Status HTTP SonarQube: ${status}"
-                    
-                    if (status == "200") {
-                        echo "✅ SonarQube est accessible"
-                    } else {
-                        echo "❌ SonarQube n'est pas accessible (HTTP: ${status})"
+                    withSonarQubeEnv('sonarqube') {
+                        tool 'SonarScanner'  // ← Utilise le SonarScanner configuré
+                        sh """
+                            sonar-scanner \
+                            -Dsonar.projectKey=projet-molka \
+                            -Dsonar.sources="moka miko" \
+                            -Dsonar.host.url=http://localhost:9000 \
+                            -Dsonar.login=${env.SONAR_AUTH_TOKEN}
+                        """
                     }
-                    
-                    // Test SonarScanner
-                    try {
-                        sh 'sonar-scanner --version'
-                        echo "✅ SonarScanner est installé"
-                    } catch (Exception e) {
-                        echo "❌ SonarScanner n'est pas installé"
-                    }
+                }
+            }
+        }
+
+        stage('Quality Gate Check') {
+            steps {
+                timeout(time: 15, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
                 }
             }
         }
