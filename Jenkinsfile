@@ -3,7 +3,7 @@ pipeline {
 
     tools {
         // La syntaxe correcte pour déclarer l'outil SonarQube Scanner
-        hudson.plugins.sonar.SonarRunnerInstallation 'SonarScanner'
+        sonar 'SonarScanner'
     }
 
     stages {
