@@ -1,11 +1,6 @@
 pipeline {
     agent any
 
-    // ON REMET LA SECTION 'tools' AVEC LA SYNTAXE TECHNIQUE EXACTE
-    tools {
-        hudson.plugins.sonar.SonarRunnerInstallation 'SonarScanner'
-    }
-
     stages {
         stage('Checkout') {
             steps {
@@ -22,9 +17,10 @@ pipeline {
 
         stage('SonarQube Analysis') {
             steps {
-                // On garde cette fonction qui prépare les variables d'environnement
+                // Utilisation de la syntaxe confirmée par le Snippet Generator
                 withSonarQubeEnv('sonarqube') { 
-                    // Et on appelle le scanner. Grâce à la section 'tools', Jenkins saura où le trouver.
+                    // La commande simple 'sonar-scanner' suffit, car withSonarQubeEnv
+                    // va préparer le chemin vers l'exécutable.
                     sh 'sonar-scanner' 
                 }
             }
