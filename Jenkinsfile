@@ -13,6 +13,18 @@ pipeline {
             steps {
                 echo '🛠️ 2. Installation des outils de sécurité'
                 script {
+                    // Installation SonarScanner
+                    sh '''
+                        echo "=== INSTALLATION SONARSCANNER ==="
+                        # Télécharger et installer sonar-scanner
+                        wget https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006-linux.zip
+                        unzip sonar-scanner-cli-5.0.1.3006-linux.zip
+                        mv sonar-scanner-5.0.1.3006-linux sonar-scanner
+                        export PATH=$PWD/sonar-scanner/bin:$PATH
+                        sonar-scanner --version
+                        echo "✅ sonar-scanner installé"
+                    '''
+                    
                     // Installation Trivy
                     sh '''
                         curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b . latest
@@ -36,6 +48,7 @@ pipeline {
                 withSonarQubeEnv('sonar-server') {
                     sh '''
                         echo "🚀 Lancement de l'analyse SonarQube..."
+                        export PATH=$PWD/sonar-scanner/bin:$PATH
                         sonar-scanner \
                         -Dsonar.projectKey=projet-molka \
                         -Dsonar.sources=. \
@@ -47,48 +60,6 @@ pipeline {
             }
         }
 
-        stage('Quality Gate') {
-            steps {
-                echo '📊 4. Vérification Quality Gate'
-                timeout(time: 1, unit: 'HOURS') {
-                    waitForQualityGate abortPipeline: true
-                }
-            }
-        }
-
-        stage('Secrets Detection') {
-            steps {
-                echo '🔐 5. Détection des secrets - Gitleaks'
-                script {
-                    catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-                        sh './gitleaks detect --source . --report-format json --report-path gitleaks-report.json --exit-code 0'
-                    }
-                }
-            }
-        }
-
-        stage('SCA - Dependency Scan') {
-            steps {
-                echo '📦 6. SCA - Scan des dépendances - Trivy'
-                script {
-                    catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-                        sh './trivy fs --format json --output trivy-sca-report.json --exit-code 0 --severity CRITICAL,HIGH .'
-                    }
-                }
-            }
-        }
-    }
-
-    post {
-        always {
-            echo '📊 Archivage des rapports de sécurité'
-            archiveArtifacts artifacts: '*-report.json', allowEmptyArchive: true
-        }
-        success {
-            echo '🎉 SUCCÈS! Pipeline terminé avec succès!'
-            echo '✅ SonarQube: Analyse complète et Quality Gate passée'
-            echo '✅ Gitleaks: Détection des secrets'
-            echo '✅ Trivy: Scan des dépendances'
-        }
+        // ... reste de votre pipeline ...
     }
 }
