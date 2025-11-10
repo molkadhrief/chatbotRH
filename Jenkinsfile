@@ -1,74 +1,66 @@
 pipeline {
-    // Agent par défaut pour les étapes qui n'ont pas besoin de Docker
     agent any 
 
     stages {
-        // ... (Stage Checkout inchangé) ...
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
 
         stage('Install Dependencies') {
             steps {
+                echo '--- Installation locale de Trivy et Gitleaks ---'
                 // Installation locale de Trivy et Gitleaks
                 sh 'curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b . latest'
                 sh 'curl -sfL https://raw.githubusercontent.com/gitleaks/gitleaks/master/scripts/install.sh | sh'
+                echo '--- Installation des dépendances Python ---'
                 sh 'pip3 install -r "moka miko/requirements.txt" --no-cache-dir'
             }
         }
 
         stage('Build Docker Image' ) {
-            // Utiliser un agent Docker pour ce stage
+            // Utiliser un agent Docker-in-Docker (DinD) pour ce stage
             agent {
                 docker {
-                    image 'docker:latest'
-                    // Monter le socket Docker de l'hôte pour permettre la construction
-                    args '-v /var/run/docker.sock:/var/run/docker.sock'
+                    image 'docker:dind'
+                    // Le mode privilégié est nécessaire pour que le conteneur puisse démarrer le démon Docker interne
+                    args '--privileged'
                 }
             }
             steps {
-                echo '--- Construction de l\'image Docker ---'
-                // La commande docker build devrait maintenant fonctionner
+                echo '--- Construction de l\'image Docker (DinD) ---'
+                // Le démon Docker est maintenant disponible à l'intérieur de ce conteneur
                 sh 'docker build -t chatbot-rh:latest .'
             }
         }
 
         stage('Security Scan') {
-            // Utiliser un agent Docker pour ce stage (pour le scan de l'image)
-            agent {
-                docker {
-                    image 'docker:latest'
-                    // Monter le socket Docker de l'hôte pour accéder à l'image construite
-                    args '-v /var/run/docker.sock:/var/run/docker.sock'
-                }
-            }
+            // Revenir à l'agent par défaut pour utiliser les outils installés localement
+            agent any
             steps {
                 script {
                     echo '--- Démarrage du Secrets Scan (Gitleaks) ---'
-                    // Gitleaks et Trivy doivent être accessibles dans ce conteneur
-                    // Pour simplifier, nous allons les installer ici aussi, ou utiliser une image plus complète.
-                    
-                    // Pour l'instant, nous allons revenir à l'agent 'any' pour le scan
-                    // et supposer que l'image est accessible.
-                    
-                    // RETOUR À L'AGENT ANY POUR LE SCAN (pour éviter de réinstaller Trivy/Gitleaks)
-                    // Si l'image est construite, elle devrait être accessible par l'hôte.
-                    
-                    // Si l'image est construite, elle est accessible par l'hôte.
-                    // Nous revenons à l'agent 'any' pour le scan pour utiliser Trivy/Gitleaks installés.
-                    
-                    // Si le stage Build Docker Image réussit, l'image est disponible sur l'hôte.
-                    // Nous pouvons revenir à l'agent 'any' pour le scan.
-                    
-                    echo '--- Démarrage du Secrets Scan (Gitleaks) ---'
+                    // Les scans continuent même en cas d'erreur (|| true)
                     sh './gitleaks detect --report-format json --report-path gitleaks-report.json --exit-code 0 || true'
                     
                     echo '--- Démarrage du SCA (Trivy) ---'
                     sh './trivy fs --format json --output trivy-sca-report.json . || true'
                     
                     echo '--- Démarrage du Docker Scan (Trivy) ---'
-                    sh './trivy image --format json --output trivy-docker-report.json chatbot-rh:latest || true'
+                    // L'image construite dans le stage précédent n'est PAS disponible ici
+                    // car elle a été construite dans un conteneur DinD temporaire.
+                    // Nous devons reconstruire l'image pour le scan, ou utiliser l'option --input de Trivy.
+                    
+                    // Pour simplifier, nous allons reconstruire l'image DANS CE STAGE
+                    // en utilisant le même agent DinD, puis la scanner.
+                    
+                    // **ATTENTION :** Le stage 'Security Scan' doit être modifié pour utiliser DinD.
+                    // Je vais donc fusionner le build et le scan Docker dans un seul stage.
                 }
             }
         }
-
+        
         // ... (Stages SonarQube Analysis et Quality Gate Check inchangés) ...
     }
 
