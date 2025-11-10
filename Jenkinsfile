@@ -4,56 +4,39 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                echo '--- 1. Checkout du code ---'
+                echo '🔍 1. Checkout du code source'
                 checkout scm
             }
         }
 
-        stage('Install Dependencies') {
+        stage('Install Security Tools') {
             steps {
-                echo '--- 2. Installation locale de Trivy et Gitleaks ---'
+                echo '🛠️ 2. Installation des outils de sécurité'
                 script {
-                    // Installation de Trivy
+                    // Installation Trivy (fonctionne bien)
                     sh '''
                         curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b . latest
                         ./trivy --version
                     '''
                     
-                    // Installation de Gitleaks
+                    // Installation Gitleaks - CORRIGÉE
                     sh '''
-                        GITLEAKS_VERSION=$(curl -s https://api.github.com/repos/gitleaks/gitleaks/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\\1/')
-                        curl -L https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz -o gitleaks.tar.gz
-                        tar -xzf gitleaks.tar.gz
+                        # Méthode directe et fiable
+                        wget -q https://github.com/gitleaks/gitleaks/releases/download/v8.29.0/gitleaks_8.29.0_linux_x64.tar.gz
+                        tar -xzf gitleaks_8.29.0_linux_x64.tar.gz
                         chmod +x gitleaks
                         ./gitleaks version
                     '''
                 }
+                
                 echo '--- Installation des dépendances Python ---'
                 sh 'pip3 install -r "moka miko/requirements.txt" --no-cache-dir --user'
             }
         }
 
-        stage('Code Security Scan') {
+        stage('SAST - SonarQube Analysis') {
             steps {
-                echo '--- 3. Secrets Scan (Gitleaks) ---'
-                script {
-                    catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-                        sh './gitleaks detect --source . --report-format json --report-path gitleaks-report.json --exit-code 1'
-                    }
-                }
-                
-                echo '--- 4. SCA (Trivy fs) ---'
-                script {
-                    catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-                        sh './trivy fs --format json --output trivy-sca-report.json --exit-code 1 --severity CRITICAL,HIGH "moka miko"'
-                    }
-                }
-            }
-        }
-
-        stage('SonarQube Analysis') {
-            steps {
-                echo '--- 5. Analyse SonarQube ---'
+                echo '🔎 3. SAST - Analyse de sécurité du code source'
                 script {
                     withSonarQubeEnv('sonarqube') {
                         tool 'SonarScanner'
@@ -69,9 +52,31 @@ pipeline {
             }
         }
 
+        stage('Secrets Detection') {
+            steps {
+                echo '🔐 4. Détection des secrets dans le code'
+                script {
+                    catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                        sh './gitleaks detect --source . --report-format json --report-path gitleaks-report.json --exit-code 1'
+                    }
+                }
+            }
+        }
+
+        stage('SCA - Dependency Scan') {
+            steps {
+                echo '📦 5. SCA - Scan des vulnérabilités des dépendances'
+                script {
+                    catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                        sh './trivy fs --format json --output trivy-sca-report.json --exit-code 1 --severity CRITICAL,HIGH "moka miko"'
+                    }
+                }
+            }
+        }
+
         stage('Quality Gate Check') {
             steps {
-                echo '--- 6. Vérification Quality Gate ---'
+                echo '🚨 6. Vérification de la Quality Gate'
                 timeout(time: 15, unit: 'MINUTES') {
                     waitForQualityGate abortPipeline: true
                 }
