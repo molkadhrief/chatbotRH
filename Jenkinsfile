@@ -31,17 +31,14 @@ pipeline {
                         ./gitleaks version
                     '''
                     
-                    // Installation SonarScanner POUR DE VRAI
+                    // Installation SonarScanner - SANS UNZIP
                     sh '''
-                        echo "=== INSTALLATION SONARSCANNER ==="
-                        # Télécharger depuis une source fiable
-                        curl -L -o sonar-scanner.zip "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-4.8.0.2856-linux.zip"
+                        echo "=== INSTALLATION SONARSCANNER SANS UNZIP ==="
+                        # Télécharger la version .tar.gz au lieu de .zip
+                        curl -L -o sonar-scanner.tar.gz "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-4.8.0.2856-linux.tar.gz"
                         
-                        # Installer unzip si nécessaire
-                        which unzip || (apt-get update && apt-get install -y unzip)
-                        
-                        # Extraire
-                        unzip -q sonar-scanner.zip
+                        # Extraire avec tar (pas besoin de unzip)
+                        tar -xzf sonar-scanner.tar.gz
                         mv sonar-scanner-4.8.0.2856-linux sonar-scanner
                         chmod +x sonar-scanner/bin/sonar-scanner
                         
@@ -70,8 +67,7 @@ pipeline {
                           -Dsonar.host.url=http://localhost:9000 \\
                           -Dsonar.login=${SONAR_TOKEN} \\
                           -Dsonar.python.version=3 \\
-                          -Dsonar.sourceEncoding=UTF-8 \\
-                          -Dsonar.scm.disabled=true
+                          -Dsonar.sourceEncoding=UTF-8
                         
                         echo "✅ ANALYSE SONARQUBE TERMINÉE !"
                         echo "📊 Allez vérifier les résultats sur http://localhost:9000"
