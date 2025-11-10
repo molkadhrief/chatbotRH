@@ -33,8 +33,8 @@ pipeline {
                     
                     // Installation SonarScanner
                     sh '''
-                        wget -q https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006-linux.zip
-                        unzip -q sonar-scanner-cli-5.0.1.3006-linux.zip
+                        wget -q https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006-linux.tar.gz
+                        tar -xzf sonar-scanner-cli-5.0.1.3006-linux.tar.gz
                         mv sonar-scanner-5.0.1.3006-linux sonar-scanner
                         chmod +x sonar-scanner/bin/sonar-scanner
                         sonar-scanner/bin/sonar-scanner --version
@@ -50,17 +50,15 @@ pipeline {
             steps {
                 echo '🔎 3. SAST - Analyse de sécurité du code source'
                 script {
-                    // Commande SonarScanner avec token projet
+                    // ⚠️ REMPLACEZ PAR LA COMMANDE EXACTE DE SONARQUBE ⚠️
                     sh """
                         sonar-scanner/bin/sonar-scanner \
                         -Dsonar.projectKey=projet-molka \
                         -Dsonar.projectName="Chatbot RH" \
-                        -Dsonar.projectVersion=1.0 \
                         -Dsonar.sources=. \
                         -Dsonar.host.url=http://localhost:9000 \
                         -Dsonar.login=${SONAR_TOKEN} \
-                        -Dsonar.python.version=3 \
-                        -Dsonar.sourceEncoding=UTF-8
+                        -Dsonar.python.version=3
                     """
                 }
             }
