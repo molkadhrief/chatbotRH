@@ -31,12 +31,15 @@ pipeline {
                         ./gitleaks version
                     '''
                     
-                    // Installation SonarScanner - VERSION GARANTIE
+                    // Installation SonarScanner - NOUVELLE URL GARANTIE
                     sh '''
-                        # Méthode garantie pour installer SonarScanner
-                        wget -q https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-4.8.0.2856-linux.zip
-                        apt-get update && apt-get install -y unzip
-                        unzip -q sonar-scanner-4.8.0.2856-linux.zip
+                        # Télécharger depuis une source fiable
+                        wget -q https://github.com/SonarSource/sonar-scanner-cli/releases/download/4.8.0.2856/sonar-scanner-cli-4.8.0.2856-linux.zip
+                        
+                        # Installer unzip si nécessaire
+                        which unzip || (apt-get update && apt-get install -y unzip)
+                        
+                        unzip -q sonar-scanner-cli-4.8.0.2856-linux.zip
                         chmod +x sonar-scanner-4.8.0.2856-linux/bin/sonar-scanner
                         sonar-scanner-4.8.0.2856-linux/bin/sonar-scanner --version
                     '''
@@ -48,7 +51,6 @@ pipeline {
             steps {
                 echo '🔎 3. SAST - Analyse de sécurité du code source'
                 script {
-                    // Commande SonarScanner SIMPLE
                     sh """
                         sonar-scanner-4.8.0.2856-linux/bin/sonar-scanner \
                         -Dsonar.projectKey=projet-molka \
@@ -90,13 +92,13 @@ pipeline {
             echo 'Le pipeline DevSecOps est terminé.'
         }
         success {
-            echo '✅ Build réussi! - Le dashboard SonarQube devrait maintenant avoir des données!'
+            echo '✅ Build réussi! - SonarQube devrait maintenant avoir des données!'
         }
         failure {
             echo '❌ Build échoué!'
         }
         unstable {
-            echo '⚠️ Build instable - Des vulnérabilités de sécurité ont été trouvées'
+            echo '⚠️ Build instable - Des vulnérabilités ont été trouvées'
         }
     }
 }
