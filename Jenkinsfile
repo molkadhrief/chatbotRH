@@ -1,9 +1,10 @@
 pipeline {
     agent any 
 
-    environment {
-        // Les credentials SonarQube sont gérés via withCredentials
-    }
+    // SUPPRIMER le bloc environment vide ou le remplir
+    // environment {
+    //     // Les credentials SonarQube sont gérés via withCredentials
+    // }
 
     stages {
         stage('Checkout') {
