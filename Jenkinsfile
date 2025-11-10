@@ -1,6 +1,11 @@
 pipeline {
     agent any
 
+    // ON REMET LA SECTION 'tools' AVEC LA SYNTAXE TECHNIQUE EXACTE
+    tools {
+        hudson.plugins.sonar.SonarRunnerInstallation 'SonarScanner'
+    }
+
     stages {
         stage('Checkout') {
             steps {
@@ -10,14 +15,16 @@ pipeline {
 
         stage('Install Dependencies') {
             steps {
-                // On ajoute des guillemets autour du chemin qui contient un espace
+                // Le chemin est correctement entre guillemets
                 sh 'pip3 install -r "moka miko/requirements.txt" --no-cache-dir'
             }
         }
 
         stage('SonarQube Analysis') {
             steps {
+                // On garde cette fonction qui prépare les variables d'environnement
                 withSonarQubeEnv('sonarqube') { 
+                    // Et on appelle le scanner. Grâce à la section 'tools', Jenkins saura où le trouver.
                     sh 'sonar-scanner' 
                 }
             }
