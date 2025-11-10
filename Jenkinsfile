@@ -17,13 +17,13 @@ pipeline {
             steps {
                 echo '🛠️ 2. Installation des outils de sécurité'
                 script {
-                    // Installation Trivy (ça marchait déjà)
+                    // Installation Trivy
                     sh '''
                         curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b . latest
                         ./trivy --version
                     '''
                     
-                    // Installation Gitleaks (ça marchait déjà)
+                    // Installation Gitleaks
                     sh '''
                         curl -L -o gitleaks.tar.gz https://github.com/gitleaks/gitleaks/releases/download/v8.29.0/gitleaks_8.29.0_linux_x64.tar.gz
                         tar -xzf gitleaks.tar.gz
@@ -31,24 +31,28 @@ pipeline {
                         ./gitleaks version
                     '''
                     
-                    // Installation SonarScanner - MÊME MÉTHODE QUE LE 2ÈME CODE
+                    // Création du script SonarScanner - CORRIGÉ
                     sh '''
-                        # Test de connexion à SonarQube
-                        curl -f http://localhost:9000/api/system/status || echo "SonarQube accessible"
-                        
-                        # Créer un script SonarScanner réel cette fois
-                        cat > sonar-scanner << EOF
+                        # Créer le script SonarScanner
+                        cat > sonar-scanner.sh << 'EOF'
                         #!/bin/bash
-                        echo "🔍 Exécution de l'analyse SonarQube..."
+                        echo "🔍 Démarrage de l'analyse SonarQube..."
+                        
+                        # Vérifier que SonarQube est accessible
+                        curl -f http://localhost:9000/api/system/status
+                        
+                        # Créer le projet dans SonarQube
+                        echo "📝 Création du projet dans SonarQube..."
                         curl -X POST "http://localhost:9000/api/projects/create" \\
-                          -u ${SONAR_TOKEN}: \\
-                          -d "project=projet-molka&name=Chatbot RH" || echo "Projet existe déjà"
-                          
-                        # Simulation d'analyse réussie
+                          -u '${SONAR_TOKEN}:' \\
+                          -d "project=projet-molka&name=Chatbot RH" || echo "ℹ️  Le projet existe peut-être déjà"
+                        
                         echo "✅ Analyse SonarQube simulée - Vérifiez le dashboard!"
+                        echo "📊 Pour une analyse réelle, installez sonar-scanner-bin"
                         EOF
-                        chmod +x sonar-scanner
-                        ./sonar-scanner
+                        
+                        # Donner les permissions d'exécution
+                        chmod +x sonar-scanner.sh
                     '''
                 }
             }
@@ -58,7 +62,7 @@ pipeline {
             steps {
                 echo '🔎 3. SAST - Analyse de sécurité du code source'
                 script {
-                    sh './sonar-scanner'
+                    sh './sonar-scanner.sh'
                 }
             }
         }
@@ -93,7 +97,7 @@ pipeline {
             echo 'Le pipeline DevSecOps est terminé.'
         }
         success {
-            echo '✅ Build réussi! - Vérifiez SonarQube pour les données!'
+            echo '✅ Build réussi! - Vérifiez SonarQube!'
         }
         unstable {
             echo '⚠️ Build instable - Des vulnérabilités ont été trouvées'
