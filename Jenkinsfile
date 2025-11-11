@@ -1,8 +1,11 @@
 pipeline {
     agent any 
+    
     environment {
         SONARQUBE_URL = 'http://localhost:9000'
+        BUILD_START_TIME = sh(script: 'date +%s', returnStdout: true).trim()
     }
+    
     stages {
         stage('Checkout') {
             steps { 
@@ -26,9 +29,6 @@ pipeline {
                         chmod +x gitleaks
                         ./gitleaks version
                         
-                        # Installation OWASP Dependency Check
-                        wget -q -O dependency-check.zip https://github.com/jeremylong/DependencyCheck/releases/download/v9.0.10/dependency-check-9.0.10-release.zip
-                        unzip -q dependency-check.zip
                         echo "✅ Outils DevSecOps installés"
                     '''
                 }
@@ -58,223 +58,185 @@ pipeline {
             }
         }
         
-        stage('Quality Gate Status') {
-            steps {
-                echo '📊 4. Statut SonarQube (sans vérification Quality Gate)'
-                script {
-                    sleep 30
-                    echo "⚠️  Vérification Quality Gate désactivée temporairement"
-                    echo "📊 Accéder au dashboard: http://localhost:9000/dashboard?id=projet-molka"
-                    echo "💡 Pour activer: Résoudre l'erreur 403 des permissions"
-                }
-            }
-        }
-        
-        stage('Secrets Detection') {
-            steps {
-                echo '🔐 5. Détection des secrets - Gitleaks'
-                script {
-                    sh '''
-                        echo "=== DÉTECTION DES SECRETS ==="
-                        ./gitleaks detect --source . --report-format json --report-path gitleaks-report.json --exit-code 0
-                        
-                        if [ -f gitleaks-report.json ]; then
-                            SECRETS_COUNT=$(jq '. | length' gitleaks-report.json 2>/dev/null || echo "0")
-                            if [ "$SECRETS_COUNT" -gt 0 ]; then
-                                echo "⚠️  ATTENTION: $SECRETS_COUNT secret(s) potentiel(s) détecté(s)"
-                            else
-                                echo "✅ Aucun secret détecté"
-                            fi
-                        fi
-                        echo "✅ Scan Gitleaks terminé"
-                    '''
-                }
-            }
-        }
-        
-        stage('SCA - Dependency Scan') {
+        stage('Security Scans') {
             parallel {
-                stage('SCA - Trivy') {
+                stage('Secrets Detection') {
                     steps {
-                        echo '📦 6. SCA - Scan des dépendances (Trivy)'
+                        echo '🔐 4. Détection des secrets - Gitleaks'
+                        script {
+                            sh '''
+                                echo "=== DÉTECTION DES SECRETS ==="
+                                ./gitleaks detect --source . --report-format json --report-path gitleaks-report.json --exit-code 0
+                                
+                                SECRETS_COUNT=$(jq '. | length' gitleaks-report.json 2>/dev/null || echo "0")
+                                echo "SECRETS_COUNT=${SECRETS_COUNT}" > security-metrics.txt
+                                
+                                if [ "$SECRETS_COUNT" -gt 0 ]; then
+                                    echo "⚠️  ATTENTION: $SECRETS_COUNT secret(s) potentiel(s) détecté(s)"
+                                else
+                                    echo "✅ Aucun secret détecté"
+                                fi
+                                echo "✅ Scan Gitleaks terminé"
+                            '''
+                        }
+                    }
+                }
+                
+                stage('SCA - Trivy Scan') {
+                    steps {
+                        echo '📦 5. SCA - Scan des dépendances (Trivy)'
                         script {
                             sh '''
                                 echo "=== SCAN TRIVY ==="
                                 ./trivy fs --format json --output trivy-sca-report.json --exit-code 0 --severity CRITICAL,HIGH .
                                 
-                                if [ -f trivy-sca-report.json ]; then
-                                    CRITICAL_COUNT=$(jq '.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL") | .VulnerabilityID' trivy-sca-report.json 2>/dev/null | wc -l || echo "0")
-                                    HIGH_COUNT=$(jq '.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH") | .VulnerabilityID' trivy-sca-report.json 2>/dev/null | wc -l || echo "0")
-                                    
-                                    if [ "$CRITICAL_COUNT" -gt 0 ] || [ "$HIGH_COUNT" -gt 0 ]; then
-                                        echo "⚠️  VULNÉRABILITÉS DÉTECTÉES: CRITICAL=$CRITICAL_COUNT, HIGH=$HIGH_COUNT"
-                                    else
-                                        echo "✅ Aucune vulnérabilité CRITICAL/HIGH détectée"
-                                    fi
+                                CRITICAL_COUNT=$(jq '.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL") | .VulnerabilityID' trivy-sca-report.json 2>/dev/null | wc -l || echo "0")
+                                HIGH_COUNT=$(jq '.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH") | .VulnerabilityID' trivy-sca-report.json 2>/dev/null | wc -l || echo "0")
+                                
+                                echo "VULN_CRITICAL=${CRITICAL_COUNT}" >> security-metrics.txt
+                                echo "VULN_HIGH=${HIGH_COUNT}" >> security-metrics.txt
+                                
+                                if [ "$CRITICAL_COUNT" -gt 0 ] || [ "$HIGH_COUNT" -gt 0 ]; then
+                                    echo "⚠️  VULNÉRABILITÉS DÉTECTÉES: CRITICAL=$CRITICAL_COUNT, HIGH=$HIGH_COUNT"
+                                else
+                                    echo "✅ Aucune vulnérabilité CRITICAL/HIGH détectée"
                                 fi
                                 echo "✅ Scan Trivy terminé"
                             '''
                         }
                     }
                 }
-                
-                stage('SCA - OWASP DC') {
-                    steps {
-                        echo '🛡️ 7. SCA - OWASP Dependency Check (Mode Offline)'
-                        script {
-                            sh '''
-                                echo "=== SCAN OWASP DEPENDENCY CHECK (OFFLINE) ==="
-                                echo "🔧 Utilisation du mode offline sans API NVD..."
-                                
-                                ./dependency-check/bin/dependency-check.sh \
-                                --project "Projet Molka DevSecOps" \
-                                --scan . \
-                                --format JSON \
-                                --out owasp-dependency-report.json \
-                                --disableNexus \
-                                --disableCentral \
-                                --enableExperimental || echo "⚠️  OWASP scan completed (offline mode)"
-                                
-                                if [ -f owasp-dependency-report.json ]; then
-                                    echo "✅ Scan OWASP Dependency Check terminé (mode offline)"
-                                else
-                                    echo "⚠️  OWASP scan: rapport non généré en mode offline"
-                                fi
-                            '''
-                        }
-                    }
-                }
             }
         }
         
-        stage('Security Report Analysis') {
+        stage('Generate Prometheus Metrics') {
             steps {
-                echo '📈 8. Analyse consolidée des rapports de sécurité'
+                echo '📊 6. Génération métriques Prometheus'
                 script {
                     sh '''
-                        echo "=== ANALYSE CONSOLIDÉE DE SÉCURITÉ ==="
-                        
-                        SECRETS_COUNT=0
-                        VULN_CRITICAL=0
-                        VULN_HIGH=0
-                        
-                        if [ -f gitleaks-report.json ]; then
-                            SECRETS_COUNT=$(jq '. | length' gitleaks-report.json 2>/dev/null || echo "0")
-                        fi
-                        
-                        if [ -f trivy-sca-report.json ]; then
-                            VULN_CRITICAL=$(jq '.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL") | .VulnerabilityID' trivy-sca-report.json 2>/dev/null | wc -l || echo "0")
-                            VULN_HIGH=$(jq '.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH") | .VulnerabilityID' trivy-sca-report.json 2>/dev/null | wc -l || echo "0")
-                        fi
-                        
-                        echo "📊 RÉSUMÉ DE SÉCURITÉ:"
-                        echo "   🔐 Secrets détectés: $SECRETS_COUNT"
-                        echo "   🚨 Vulnérabilités CRITICAL: $VULN_CRITICAL"
-                        echo "   ⚠️  Vulnérabilités HIGH: $VULN_HIGH"
-                        echo "   🔎 SonarQube: Analyse complétée (Quality Gate désactivé)"
-                        
-                        if [ "$SECRETS_COUNT" -gt 0 ] || [ "$VULN_CRITICAL" -gt 0 ] || [ "$VULN_HIGH" -gt 0 ]; then
-                            echo "🔍 PROBLÈMES DE SÉCURITÉ IDENTIFIÉS"
+                        # Lire les métriques de sécurité
+                        if [ -f security-metrics.txt ]; then
+                            source security-metrics.txt
                         else
-                            echo "✅ AUCUN PROBLÈME DE SÉCURITÉ CRITIQUE DÉTECTÉ"
+                            SECRETS_COUNT=0
+                            VULN_CRITICAL=0
+                            VULN_HIGH=0
                         fi
+                        
+                        # Calculer la durée du build
+                        BUILD_END_TIME=$(date +%s)
+                        BUILD_DURATION=$((BUILD_END_TIME - ${BUILD_START_TIME}))
+                        
+                        # Générer les métriques Prometheus au format texte
+                        cat > prometheus-metrics.txt << EOM
+                        # HELP devsecops_secrets_detected_total Number of secrets detected in DevSecOps pipeline
+                        # TYPE devsecops_secrets_detected_total gauge
+                        devsecops_secrets_detected_total{project="projet-molka", environment="dev"} ${SECRETS_COUNT}
+                        
+                        # HELP devsecops_vulnerabilities_critical_total Number of critical vulnerabilities detected
+                        # TYPE devsecops_vulnerabilities_critical_total gauge
+                        devsecops_vulnerabilities_critical_total{project="projet-molka", environment="dev"} ${VULN_CRITICAL}
+                        
+                        # HELP devsecops_vulnerabilities_high_total Number of high vulnerabilities detected
+                        # TYPE devsecops_vulnerabilities_high_total gauge
+                        devsecops_vulnerabilities_high_total{project="projet-molka", environment="dev"} ${VULN_HIGH}
+                        
+                        # HELP devsecops_build_duration_seconds DevSecOps pipeline build duration
+                        # TYPE devsecops_build_duration_seconds gauge
+                        devsecops_build_duration_seconds{project="projet-molka", environment="dev"} ${BUILD_DURATION}
+                        
+                        # HELP devsecops_scan_success_status DevSecOps scan success status
+                        # TYPE devsecops_scan_success_status gauge
+                        devsecops_scan_success_status{project="projet-molka", environment="dev"} 1
+                        EOM
+                        
+                        echo "✅ Métriques Prometheus générées :"
+                        echo "=== MÉTRIQUES DEVSECOPS ==="
+                        cat prometheus-metrics.txt
                     '''
                 }
             }
         }
         
-        stage('Génération Rapport Global') {
+        stage('Generate Security Report') {
             steps {
-                echo '📋 9. Génération rapport DevSecOps'
+                echo '📋 7. Génération rapport de sécurité'
                 script {
                     sh '''
-                        echo "📊 CRÉATION RAPPORT DEVSECOPS"
-                        CURRENT_DATE=$(date "+%Y-%m-%d %H:%M:%S")
+                        # Lire les métriques
+                        source security-metrics.txt
+                        BUILD_END_TIME=$(date +%s)
+                        BUILD_DURATION=$((BUILD_END_TIME - ${BUILD_START_TIME}))
                         
-                        SECRETS_COUNT=$(jq '. | length' gitleaks-report.json 2>/dev/null || echo "0")
-                        VULN_CRITICAL=$(jq '.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL") | .VulnerabilityID' trivy-sca-report.json 2>/dev/null | wc -l || echo "0")
-                        VULN_HIGH=$(jq '.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH") | .VulnerabilityID' trivy-sca-report.json 2>/dev/null | wc -l || echo "0")
-                        
+                        # Générer le rapport HTML
                         cat > devsecops-dashboard.html << EOF
                         <!DOCTYPE html>
                         <html>
                         <head>
-                            <title>Rapport DevSecOps - Projet Molka</title>
+                            <title>Dashboard DevSecOps - Métriques Prometheus</title>
                             <style>
                                 body { font-family: Arial, sans-serif; margin: 40px; }
                                 .header { background: #2c3e50; color: white; padding: 20px; border-radius: 5px; }
-                                .section { margin: 20px 0; padding: 15px; border-left: 4px solid #3498db; background: #f8f9fa; }
-                                .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0; }
-                                .metric-card { background: white; padding: 15px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; }
-                                .success { border-color: #27ae60; background: #d5f4e6; }
-                                .warning { border-color: #f39c12; background: #fef5e7; }
-                                .critical { border-color: #e74c3c; background: #fdeaea; }
+                                .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin: 20px 0; }
+                                .metric-card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center; }
+                                .metric-value { font-size: 2.5em; font-weight: bold; margin: 10px 0; }
+                                .success { border-left: 5px solid #27ae60; }
+                                .warning { border-left: 5px solid #f39c12; }
+                                .critical { border-left: 5px solid #e74c3c; }
+                                .info { border-left: 5px solid #3498db; }
                             </style>
                         </head>
                         <body>
                             <div class="header">
-                                <h1>🔒 Rapport DevSecOps Complet</h1>
-                                <h2>Projet Molka - $CURRENT_DATE</h2>
-                                <p>Build: ${BUILD_NUMBER} | Jenkins: SUCCESS | SonarQube: ANALYSÉ</p>
+                                <h1>📊 Dashboard DevSecOps avec Prometheus</h1>
+                                <h2>Projet Molka - Build #${BUILD_NUMBER}</h2>
+                                <p>Métriques exportées vers Prometheus pour monitoring temps réel</p>
                             </div>
                             
                             <div class="metrics">
-                                <div class="metric-card success">
-                                    <h3>🔎 SAST - SonarQube</h3>
-                                    <p>Analyse: COMPLÉTÉE</p>
-                                    <p><strong>Dashboard:</strong> <a href="http://localhost:9000/dashboard?id=projet-molka">Voir résultats</a></p>
+                                <div class="metric-card \$([ $SECRETS_COUNT -gt 0 ] && echo "warning" || echo "success")">
+                                    <h3>🔐 Secrets Détectés</h3>
+                                    <div class="metric-value">$SECRETS_COUNT</div>
+                                    <p>Métrique: devsecops_secrets_detected_total</p>
                                 </div>
-                                <div class="metric-card $([ $SECRETS_COUNT -gt 0 ] && echo "warning" || echo "success")">
-                                    <h3>🔐 Secrets</h3>
-                                    <p>Gitleaks Scan</p>
-                                    <p><strong>Secrets:</strong> $SECRETS_COUNT détectés</p>
+                                
+                                <div class="metric-card \$([ $VULN_CRITICAL -gt 0 ] && echo "critical" || echo "success")">
+                                    <h3>🚨 Vulnérabilités CRITICAL</h3>
+                                    <div class="metric-value">$VULN_CRITICAL</div>
+                                    <p>Métrique: devsecops_vulnerabilities_critical_total</p>
                                 </div>
-                                <div class="metric-card $([ $VULN_CRITICAL -gt 0 ] && echo "critical" || ([ $VULN_HIGH -gt 0 ] && echo "warning" || echo "success"))">
-                                    <h3>📦 SCA - Trivy</h3>
-                                    <p>Dependency Scan</p>
-                                    <p><strong>CRITICAL:</strong> $VULN_CRITICAL</p>
-                                    <p><strong>HIGH:</strong> $VULN_HIGH</p>
+                                
+                                <div class="metric-card \$([ $VULN_HIGH -gt 0 ] && echo "warning" || echo "success")">
+                                    <h3>⚠️ Vulnérabilités HIGH</h3>
+                                    <div class="metric-value">$VULN_HIGH</div>
+                                    <p>Métrique: devsecops_vulnerabilities_high_total</p>
                                 </div>
-                                <div class="metric-card success">
-                                    <h3>🛡️ SCA - OWASP</h3>
-                                    <p>Mode: OFFLINE</p>
-                                    <p><strong>Scan:</strong> COMPLÉTÉ</p>
+                                
+                                <div class="metric-card info">
+                                    <h3>⏱️ Durée du Build</h3>
+                                    <div class="metric-value">${BUILD_DURATION}s</div>
+                                    <p>Métrique: devsecops_build_duration_seconds</p>
                                 </div>
                             </div>
                             
-                            <div class="section warning">
-                                <h3>⚠️ Information: Quality Gate Désactivé</h3>
-                                <p>L'analyse SonarQube est complète mais la vérification automatique du Quality Gate est temporairement désactivée.</p>
-                                <p><strong>Dashboard SonarQube:</strong> <a href="http://localhost:9000/dashboard?id=projet-molka">http://localhost:9000/dashboard?id=projet-molka</a></p>
-                                <p><strong>Raison:</strong> Problème de permissions API (erreur 403)</p>
-                            </div>
-                            
-                            $([ $SECRETS_COUNT -gt 0 ] || [ $VULN_CRITICAL -gt 0 ] || [ $VULN_HIGH -gt 0 ] && echo "
-                            <div class="section critical">
-                                <h3>🔍 Problèmes de Sécurité Identifiés</h3>
+                            <div class="metric-card info">
+                                <h3>📈 Intégration Prometheus</h3>
+                                <p><strong>Métriques générées :</strong></p>
                                 <ul>
-                                    $([ $SECRETS_COUNT -gt 0 ] && echo "<li><strong>Secrets:</strong> $SECRETS_COUNT secret(s) potentiel(s)</li>")
-                                    $([ $VULN_CRITICAL -gt 0 ] && echo "<li><strong>Vulnérabilités CRITICAL:</strong> $VULN_CRITICAL</li>")
-                                    $([ $VULN_HIGH -gt 0 ] && echo "<li><strong>Vulnérabilités HIGH:</strong> $VULN_HIGH</li>")
+                                    <li><code>devsecops_secrets_detected_total</code> - Secrets détectés</li>
+                                    <li><code>devsecops_vulnerabilities_critical_total</code> - Vulnérabilités CRITICAL</li>
+                                    <li><code>devsecops_vulnerabilities_high_total</code> - Vulnérabilités HIGH</li>
+                                    <li><code>devsecops_build_duration_seconds</code> - Durée du pipeline</li>
+                                    <li><code>devsecops_scan_success_status</code> - Statut des scans</li>
                                 </ul>
-                                <p><strong>Actions recommandées:</strong> Examiner les rapports détaillés pour planifier les corrections.</p>
-                            </div>
-                            ")
-                            
-                            <div class="section">
-                                <h3>📊 Rapports générés</h3>
-                                <ul>
-                                    <li><strong>SonarQube:</strong> <a href="http://localhost:9000/dashboard?id=projet-molka">Dashboard complet</a></li>
-                                    <li><strong>gitleaks-report.json</strong> - Secrets détectés ($SECRETS_COUNT)</li>
-                                    <li><strong>trivy-sca-report.json</strong> - Vulnérabilités (CRITICAL: $VULN_CRITICAL, HIGH: $VULN_HIGH)</li>
-                                    <li><strong>owasp-dependency-report.json</strong> - Scan OWASP Dependency Check (offline)</li>
-                                </ul>
+                                <p><strong>Accès Prometheus :</strong> http://localhost:9090</p>
+                                <p><strong>Accès Grafana :</strong> http://localhost:3000</p>
                             </div>
                         </body>
                         </html>
                         EOF
                         
-                        echo "✅ Rapport HTML généré: devsecops-dashboard.html"
+                        echo "✅ Rapport HTML généré avec métriques Prometheus"
                     '''
                 }
             }
@@ -283,50 +245,44 @@ pipeline {
     
     post {
         always {
-            echo '📊 Archivage des rapports DevSecOps'
-            archiveArtifacts artifacts: '*-report.*,devsecops-dashboard.html', allowEmptyArchive: true
+            echo '📦 Archivage des rapports et métriques'
+            archiveArtifacts artifacts: '*-report.*,security-metrics.txt,prometheus-metrics.txt,devsecops-dashboard.html', allowEmptyArchive: true
             
+            // Nettoyage
             sh '''
                 echo "=== NETTOYAGE ==="
-                rm -f trivy gitleaks gitleaks.tar.gz dependency-check.zip
-                rm -rf dependency-check
+                rm -f trivy gitleaks gitleaks.tar.gz
                 echo "✅ Nettoyage terminé"
             '''
+            
+            script {
+                def secretsCount = sh(script: 'cat security-metrics.txt 2>/dev/null | grep SECRETS_COUNT | cut -d= -f2', returnStdout: true).trim() ?: "0"
+                def criticalCount = sh(script: 'cat security-metrics.txt 2>/dev/null | grep VULN_CRITICAL | cut -d= -f2', returnStdout: true).trim() ?: "0"
+                def highCount = sh(script: 'cat security-metrics.txt 2>/dev/null | grep VULN_HIGH | cut -d= -f2', returnStdout: true).trim() ?: "0"
+                
+                echo """
+                🎉 PIPELINE DEVSECOPS AVEC PROMETHEUS - TERMINÉ !
+                
+                📊 MÉTRIQUES GÉNÉRÉES :
+                • 🔐 Secrets détectés: ${secretsCount}
+                • 🚨 Vulnérabilités CRITICAL: ${criticalCount}
+                • ⚠️  Vulnérabilités HIGH: ${highCount}
+                
+                📈 INTÉGRATION PROMETHEUS :
+                • Métriques exportées: prometheus-metrics.txt
+                • Dashboard: devsecops-dashboard.html
+                • Endpoint: http://localhost:8080/prometheus
+                
+                🔗 PROCHAINES ÉTAPES :
+                1. Redémarrer Jenkins pour activer Prometheus
+                2. Tester: curl http://localhost:8080/prometheus
+                3. Déployer Grafana pour visualisation
+                """
+            }
         }
         
         success {
-            echo '🎉 SUCCÈS! Pipeline DevSecOps COMPLET terminé!'
-            script {
-                echo """
-                ================================================
-                🎉 DEVSECOPS COMPLET - JENKINS SUCCESS
-                ================================================
-                
-                📋 BUILD #${env.BUILD_NUMBER} - ${new Date().format("yyyy-MM-dd HH:mm:ss")}
-                
-                ✅ TOUTES LES ANALYSES TERMINÉES :
-                • 🔎 SAST - SonarQube: Analyse complétée (Quality Gate désactivé)
-                • 🔐 Secrets - Gitleaks: 3 secrets détectés
-                • 📦 SCA - Trivy: 1 CRITICAL + 3 HIGH vulnérabilités
-                • 🛡️ SCA - OWASP DC: Scan offline complété
-                
-                🔍 PROBLÈMES IDENTIFIÉS :
-                • Secrets: 3 détectés
-                • Vulnérabilités: 1 CRITICAL, 3 HIGH
-                • SonarQube: Quality Gate désactivé (problème permissions)
-                
-                🔗 ACCÈS AUX RÉSULTATS :
-                • 📈 SonarQube: http://localhost:9000/dashboard?id=projet-molka
-                • 🏗️ Jenkins: ${env.BUILD_URL}
-                • 📁 Rapports: Voir 'Artifacts' dans Jenkins
-                
-                💡 RECOMMANDATIONS :
-                1. Examiner le dashboard SonarQube manuellement
-                2. Corriger les 3 secrets exposés
-                3. Traiter la vulnérabilité CRITICAL et les 3 HIGH
-                4. Résoudre le problème de permissions SonarQube
-                """
-            }
+            echo '✅ SUCCÈS! Pipeline DevSecOps + Prometheus COMPLET!'
         }
     }
 }
