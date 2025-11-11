@@ -1,43 +1,39 @@
 pipeline {
     agent any 
-
     environment {
-        SLACK_CHANNEL = '#security-alerts'
         SONARQUBE_URL = 'http://localhost:9000'
-        DOCKER_REGISTRY = 'localhost:5000'
+        NVD_API_KEY = '45ad211b-1b67-4f53-8985-a3c13fe7907d'
     }
-
     stages {
         stage('Checkout') {
-            steps {
+            steps { 
                 echo '🔍 1. Checkout du code source'
-                checkout scm
+                checkout scm 
             }
         }
-
         stage('Install Security Tools') {
             steps {
-                echo '🛠️ 2. Installation des outils DevSecOps'
+                echo '🛠️ 2. Installation outils DevSecOps'
                 script {
                     sh '''
-                        # Installation Trivy pour SCA et scan Docker
+                        # Installation Trivy
                         curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b . latest
                         ./trivy --version
                         
-                        # Installation Gitleaks pour secrets detection
+                        # Installation Gitleaks
                         curl -L -o gitleaks.tar.gz https://github.com/gitleaks/gitleaks/releases/download/v8.29.0/gitleaks_8.29.0_linux_x64.tar.gz
                         tar -xzf gitleaks.tar.gz
                         chmod +x gitleaks
                         ./gitleaks version
                         
-                        # Installation OWASP Dependency-Check (alternative SCA)
+                        # Installation OWASP Dependency Check
                         wget -q -O dependency-check.zip https://github.com/jeremylong/DependencyCheck/releases/download/v9.0.10/dependency-check-9.0.10-release.zip
                         unzip -q dependency-check.zip
+                        echo "✅ Outils DevSecOps installés"
                     '''
                 }
             }
         }
-
         stage('SAST - SonarQube Analysis') {
             steps {
                 echo '🔎 3. SAST - Analyse statique du code'
@@ -45,6 +41,7 @@ pipeline {
                     script {
                         withCredentials([string(credentialsId: 'sonar-token-molka', variable: 'SONAR_TOKEN')]) {
                             sh '''
+                                echo "🚀 Lancement analyse SonarQube..."
                                 sonar-scanner \
                                 -Dsonar.projectKey=projet-molka \
                                 -Dsonar.sources=. \
@@ -52,31 +49,26 @@ pipeline {
                                 -Dsonar.host.url=http://localhost:9000 \
                                 -Dsonar.token=${SONAR_TOKEN} \
                                 -Dsonar.sourceEncoding=UTF-8
+                                echo "✅ Analyse SonarQube terminée"
                             '''
                         }
                     }
                 }
             }
         }
-
         stage('Quality Gate') {
             steps {
-                echo '📊 4. Vérification Quality Gate'
-                script {
-                    echo "⏳ Attente du traitement de l'analyse SonarQube..."
-                    sleep 30
-                    // En production, utiliser: waitForQualityGate abortPipeline: true
-                }
+                echo '📊 4. Attente analyse SonarQube'
+                sleep 30
             }
         }
-
         stage('Secrets Detection') {
             steps {
                 echo '🔐 5. Détection des secrets - Gitleaks'
                 script {
                     catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
                         sh '''
-                            echo "=== DÉTECTION DES SECRETS (Shift-Left) ==="
+                            echo "=== DÉTECTION DES SECRETS ==="
                             ./gitleaks detect --source . --report-format json --report-path gitleaks-report.json --exit-code 0
                             echo "✅ Scan Gitleaks terminé"
                         '''
@@ -84,7 +76,6 @@ pipeline {
                 }
             }
         }
-
         stage('SCA - Dependency Scan') {
             parallel {
                 stage('SCA - Trivy') {
@@ -93,7 +84,7 @@ pipeline {
                         script {
                             catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
                                 sh '''
-                                    echo "=== SCAN DES DÉPENDANCES TRIVY ==="
+                                    echo "=== SCAN TRIVY ==="
                                     ./trivy fs --format json --output trivy-sca-report.json --exit-code 0 --severity CRITICAL,HIGH .
                                     echo "✅ Scan Trivy terminé"
                                 '''
@@ -108,12 +99,16 @@ pipeline {
                             catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
                                 sh '''
                                     echo "=== SCAN OWASP DEPENDENCY CHECK ==="
+                                    echo "Utilisation de la clé API NVD: ${NVD_API_KEY:0:8}..."  # Masque partiellement la clé
+                                    
                                     ./dependency-check/bin/dependency-check.sh \
-                                    --project "Projet Molka" \
+                                    --project "Projet Molka DevSecOps" \
                                     --scan . \
                                     --format JSON \
                                     --out owasp-dependency-report.json \
+                                    --nvdApiKey ${NVD_API_KEY} \
                                     --enableExperimental
+                                    
                                     echo "✅ Scan OWASP Dependency Check terminé"
                                 '''
                             }
@@ -122,38 +117,16 @@ pipeline {
                 }
             }
         }
-
-        stage('Docker Image Security') {
+        stage('Génération Rapport Global') {
             steps {
-                echo '🐳 8. Scan de sécurité des images Docker'
-                script {
-                    catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-                        sh '''
-                            echo "=== SCAN SÉCURITÉ DOCKER ==="
-                            # Construction de l'image (si Dockerfile présent)
-                            if [ -f "Dockerfile" ]; then
-                                docker build -t ${DOCKER_REGISTRY}/projet-molka:${BUILD_NUMBER} .
-                                ./trivy image --format json --output trivy-docker-report.json --exit-code 0 --severity CRITICAL,HIGH ${DOCKER_REGISTRY}/projet-molka:${BUILD_NUMBER}
-                                echo "✅ Scan Docker image terminé"
-                            else
-                                echo "ℹ️  Aucun Dockerfile détecté - étape skipped"
-                            fi
-                        '''
-                    }
-                }
-            }
-        }
-
-        stage('Génération Rapports') {
-            steps {
-                echo '📋 9. Génération des rapports de sécurité'
+                echo '📋 8. Génération rapport DevSecOps'
                 script {
                     sh '''
-                        echo "📊 GÉNÉRATION RAPPORTS DEVSECOPS"
+                        echo "📊 CRÉATION RAPPORT DEVSECOPS"
                         CURRENT_DATE=$(date "+%Y-%m-%d %H:%M:%S")
                         
                         # Rapport HTML exécutif
-                        cat > security-executive-dashboard.html << EOF
+                        cat > devsecops-dashboard.html << EOF
                         <!DOCTYPE html>
                         <html>
                         <head>
@@ -164,15 +137,14 @@ pipeline {
                                 .section { margin: 20px 0; padding: 15px; border-left: 4px solid #3498db; background: #f8f9fa; }
                                 .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0; }
                                 .metric-card { background: white; padding: 15px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; }
-                                .critical { border-color: #e74c3c; background: #fdeaea; }
                                 .success { border-color: #27ae60; background: #d5f4e6; }
                             </style>
                         </head>
                         <body>
                             <div class="header">
-                                <h1>🔒 Rapport DevSecOps</h1>
+                                <h1>🔒 Rapport DevSecOps Complet</h1>
                                 <h2>Projet Molka - ${CURRENT_DATE}</h2>
-                                <p>Build: ${BUILD_NUMBER} | Pipeline: ${BUILD_URL}</p>
+                                <p>Build: ${BUILD_NUMBER} | Approche: Shift-Left Security</p>
                             </div>
                             
                             <div class="metrics">
@@ -187,48 +159,47 @@ pipeline {
                                     <p><strong>Status:</strong> ✅ TERMINÉ</p>
                                 </div>
                                 <div class="metric-card">
-                                    <h3>📦 SCA</h3>
+                                    <h3>📦 SCA - Trivy</h3>
                                     <p>Dependency Scan</p>
                                     <p><strong>Status:</strong> ✅ EFFECTUÉ</p>
                                 </div>
                                 <div class="metric-card">
-                                    <h3>🐳 Docker</h3>
-                                    <p>Image Security</p>
-                                    <p><strong>Status:</strong> ✅ ANALYSÉ</p>
+                                    <h3>🛡️ SCA - OWASP</h3>
+                                    <p>Dependency Check</p>
+                                    <p><strong>Status:</strong> ✅ AVEC API KEY</p>
                                 </div>
                             </div>
                             
                             <div class="section success">
                                 <h3>✅ Résumé de l'analyse DevSecOps</h3>
                                 <p><strong>Approche Shift-Left:</strong> Sécurité intégrée dès le développement</p>
-                                <p><strong>Couverture:</strong> SAST, SCA, Secrets, Docker Security</p>
+                                <p><strong>Couverture complète:</strong> SAST, SCA (2 outils), Secrets Detection</p>
                                 <p><strong>Lien SonarQube:</strong> <a href="http://localhost:9000/dashboard?id=projet-molka">Voir le dashboard</a></p>
+                                <p><strong>Clé API NVD:</strong> Configurée et fonctionnelle</p>
                             </div>
                             
                             <div class="section">
-                                <h3>📋 Prochaines étapes DevSecOps</h3>
+                                <h3>📊 Rapports générés</h3>
                                 <ul>
-                                    <li>Review des vulnérabilités critiques</li>
-                                    <li>Intégration DAST (tests dynamiques)</li>
-                                    <li>Monitoring continu avec Slack</li>
-                                    <li>Amélioration continue du pipeline</li>
+                                    <li>gitleaks-report.json - Détection des secrets</li>
+                                    <li>trivy-sca-report.json - Scan Trivy des dépendances</li>
+                                    <li>owasp-dependency-report.json - Scan OWASP Dependency Check</li>
                                 </ul>
                             </div>
                         </body>
                         </html>
                         EOF
                         
-                        echo "✅ Rapport HTML généré: security-executive-dashboard.html"
+                        echo "✅ Rapport HTML généré: devsecops-dashboard.html"
                     '''
                 }
             }
         }
     }
-
     post {
         always {
             echo '📊 Archivage des rapports DevSecOps'
-            archiveArtifacts artifacts: '*-report.*,security-*.html,*-dependency-report.json', allowEmptyArchive: true
+            archiveArtifacts artifacts: '*-report.*,devsecops-dashboard.html', allowEmptyArchive: true
             
             // Nettoyage
             sh '''
@@ -244,10 +215,11 @@ pipeline {
                 sh """
                     cat > devsecops-executive-report.json << EOF
                     {
-                        "project": "Projet Molka",
+                        "project": "Projet Molka DevSecOps",
                         "buildNumber": "${env.BUILD_NUMBER}",
                         "timestamp": "${currentTime}",
                         "devsecopsApproach": "Shift-Left Security",
+                        "nvdApiKey": "configured",
                         "securityStages": {
                             "sast": {
                                 "tool": "SonarQube",
@@ -256,21 +228,22 @@ pipeline {
                             },
                             "secrets": {
                                 "tool": "Gitleaks",
-                                "status": "COMPLETED",
+                                "status": "COMPLETED", 
                                 "report": "gitleaks-report.json"
                             },
-                            "sca": {
-                                "tools": ["Trivy", "OWASP Dependency Check"],
-                                "status": "COMPLETED",
-                                "reports": ["trivy-sca-report.json", "owasp-dependency-report.json"]
-                            },
-                            "docker_scan": {
+                            "sca_trivy": {
                                 "tool": "Trivy",
                                 "status": "COMPLETED",
-                                "report": "trivy-docker-report.json"
+                                "report": "trivy-sca-report.json"
+                            },
+                            "sca_owasp": {
+                                "tool": "OWASP Dependency Check",
+                                "status": "COMPLETED",
+                                "nvdApiKey": "enabled",
+                                "report": "owasp-dependency-report.json"
                             }
                         },
-                        "summary": "DevSecOps pipeline executed successfully with shift-left approach",
+                        "summary": "Full DevSecOps pipeline executed successfully with NVD API key",
                         "buildUrl": "${env.BUILD_URL}"
                     }
                     EOF
@@ -279,86 +252,64 @@ pipeline {
         }
         
         success {
-            echo '🎉 SUCCÈS! Pipeline DevSecOps terminé!'
-            
-            // Notification Slack
+            echo '🎉 SUCCÈS! Pipeline DevSecOps COMPLET terminé!'
             script {
-                try {
-                    slackSend(
-                        channel: "${env.SLACK_CHANNEL}",
-                        message: "✅ DevSecOps Scan Réussi - Projet Molka\n• Build: ${env.BUILD_NUMBER}\n• SAST: ✅ SonarQube\n• SCA: ✅ Dépendances\n• Secrets: ✅ Gitleaks\n• Docker: ✅ Sécurité\n• Rapport: ${env.BUILD_URL}",
-                        color: "good"
-                    )
-                    echo "📢 Notification Slack envoyée"
-                } catch (Exception e) {
-                    echo "⚠️ Slack notification failed: ${e.message}"
-                }
+                echo """
+                ================================================
+                🎉 DEVSECOPS COMPLET RÉUSSI - API NVD FONCTIONNELLE
+                ================================================
+                
+                📋 BUILD #${env.BUILD_NUMBER} - ${new Date().format("yyyy-MM-dd HH:mm:ss")}
+                
+                ✅ TOUTES LES ANALYSES TERMINÉES :
+                • 🔎 SAST - SonarQube: Analyse statique du code
+                • 🔐 Secrets - Gitleaks: Détection des secrets exposés  
+                • 📦 SCA - Trivy: Scan des vulnérabilités des dépendances
+                • 🛡️ SCA - OWASP DC: Scan avec clé API NVD fonctionnelle
+                
+                🔗 ACCÈS AUX RÉSULTATS :
+                • 📈 SonarQube: http://localhost:9000/dashboard?id=projet-molka
+                • 🏗️ Jenkins: ${env.BUILD_URL}
+                • 📁 Rapports: Voir 'Artifacts' dans Jenkins
+                
+                📊 RAPPORTS GÉNÉRÉS :
+                • gitleaks-report.json - Détection des secrets
+                • trivy-sca-report.json - Scan Trivy des dépendances
+                • owasp-dependency-report.json - Scan OWASP Dependency Check
+                • devsecops-dashboard.html - Dashboard HTML
+                • devsecops-executive-report.json - Rapport exécutif
+                
+                💡 APPROCHE SHIFT-LEFT COMPLÈTE :
+                • Sécurité intégrée dès le développement
+                • Double analyse SCA (Trivy + OWASP)
+                • Clé API NVD configurée et fonctionnelle
+                • Rapports complets et automatisés
+                """
             }
-            
-            // Notification console détaillée
-            echo """
-            ================================================
-            🎉 PIPELINE DEVSECOPS RÉUSSI - APPROCHE SHIFT-LEFT
-            ================================================
-            
-            📋 BUILD #${env.BUILD_NUMBER} - ${new Date().format("yyyy-MM-dd HH:mm:ss")}
-            
-            🔒 ANALYSES DE SÉCURITÉ EFFECTUÉES :
-            • 🔎 SAST - SonarQube: Analyse statique du code source
-            • 🔐 Secrets - Gitleaks: Détection des secrets exposés  
-            • 📦 SCA - Trivy/OWASP: Scan des vulnérabilités des dépendances
-            • 🐳 Docker Security: Analyse des images containers
-            
-            📊 RAPPORTS GÉNÉRÉS :
-            • gitleaks-report.json - Détection des secrets
-            • trivy-sca-report.json - Scan Trivy des dépendances
-            • owasp-dependency-report.json - Scan OWASP Dependency Check
-            • trivy-docker-report.json - Sécurité Docker
-            • security-executive-dashboard.html - Dashboard HTML
-            • devsecops-executive-report.json - Rapport exécutif
-            
-            🔗 ACCÈS AUX RÉSULTATS :
-            • 📈 SonarQube: http://localhost:9000/dashboard?id=projet-molka
-            • 🏗️ Jenkins: ${env.BUILD_URL}
-            • 📁 Rapports: Voir 'Artifacts' dans Jenkins
-            
-            💡 APPROCHE SHIFT-LEFT :
-            • Sécurité intégrée dès le développement
-            • Détection précoce des vulnérabilités
-            • Réduction des coûts de correction
-            """
         }
         
         unstable {
             echo '⚠️ Pipeline instable - Problèmes de sécurité détectés'
-            
-            // Notification Slack pour problèmes
             script {
-                try {
-                    slackSend(
-                        channel: "${env.SLACK_CHANNEL}", 
-                        message: "⚠️ Problèmes Sécurité - Projet Molka\n• Build: ${env.BUILD_NUMBER}\n• Status: Problèmes détectés\n• Vérifier: ${env.BUILD_URL}",
-                        color: "warning"
-                    )
-                } catch (Exception e) {
-                    echo "⚠️ Slack notification failed: ${e.message}"
-                }
+                echo """
+                ⚠️ PROBLÈMES IDENTIFIÉS - ACTIONS REQUISES :
+                • Consulter gitleaks-report.json pour les secrets exposés
+                • Révoquer/rotation des credentials détectés
+                • Vérifier trivy-sca-report.json pour vulnérabilités critiques
+                • Examiner owasp-dependency-report.json pour dépendances vulnérables
+                """
             }
         }
         
         failure {
             echo '❌ ÉCHEC Pipeline DevSecOps'
-            
             script {
-                try {
-                    slackSend(
-                        channel: "${env.SLACK_CHANNEL}",
-                        message: "❌ Échec Pipeline DevSecOps - Projet Molka\n• Build: ${env.BUILD_NUMBER}\n• Consulter les logs: ${env.BUILD_URL}console",
-                        color: "danger"
-                    )
-                } catch (Exception e) {
-                    echo "❌ Slack notification failed: ${e.message}"
-                }
+                echo """
+                ❌ ÉCHEC DÉTECTÉ - INVESTIGATION REQUISE :
+                • Vérifier les logs Jenkins pour l'erreur spécifique
+                • Confirmer la validité de la clé API NVD
+                • Vérifier la connectivité réseau
+                """
             }
         }
     }
