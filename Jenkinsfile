@@ -98,11 +98,8 @@ pipeline {
                             ./trivy fs --format json --output trivy-sca-report.json --exit-code 0 --severity CRITICAL,HIGH .
                             echo "✅ Scan Trivy terminé"
                             
-                            # Génération rapport HTML Trivy avec template valide
-                            echo "📊 Génération rapport HTML..."
-                            ./trivy fs --format template --template "@/usr/local/share/trivy/templates/html.tpl" --output trivy-sca-report.html --exit-code 0 --severity CRITICAL,HIGH . || true
-                            
-                            # Alternative: génération en format table
+                            # Correction: Suppression du template HTML non disponible
+                            echo "📊 Génération rapport texte..."
                             ./trivy fs --format table --output trivy-sca-report.txt --exit-code 0 --severity CRITICAL,HIGH . || true
                         '''
                     }
@@ -140,7 +137,7 @@ pipeline {
                         <body>
                             <div class="header">
                                 <h1>🔒 Rapport de Sécurité</h1>
-                                <h2>Projet Molka - ${CURRENT_DATE}</h2>
+                                <h2>Projet Molka - \${CURRENT_DATE}</h2>
                             </div>
                             
                             <div class="metrics">
@@ -164,7 +161,7 @@ pipeline {
                             <div class="section success">
                                 <h3>✅ Résumé de l'analyse</h3>
                                 <p><strong>Build:</strong> ${BUILD_NUMBER}</p>
-                                <p><strong>Date:</strong> ${CURRENT_DATE}</p>
+                                <p><strong>Date:</strong> \${CURRENT_DATE}</p>
                                 <p><strong>Lien SonarQube:</strong> <a href="http://localhost:9000/dashboard?id=projet-molka">Voir le dashboard</a></p>
                             </div>
                             
@@ -237,7 +234,7 @@ pipeline {
         success {
             echo '🎉 SUCCÈS! Pipeline de sécurité terminé!'
             
-            // Notification Email (solution de repli)
+            // Notification Email avec ton email
             script {
                 try {
                     emailext (
@@ -263,11 +260,13 @@ pipeline {
                         
                         <p>Les rapports détaillés sont disponibles en pièces jointes.</p>
                         """,
-                        to: "admin@example.com",
+                        to: "molka.dhrief@esprit.tn",  // ← TON EMAIL ICI
                         attachmentsPattern: "*-report.*,security-*.html,security-*.json"
                     )
+                    echo "📧 Email de succès envoyé à molka.dhrief@esprit.tn"
                 } catch (Exception e) {
                     echo "⚠️ Email notification failed: ${e.message}"
+                    echo "📧 Pour configurer les emails, va dans: Gestion Jenkins → Configuration du système → Section Email"
                 }
                 
                 // Alternative: notification console étendue
@@ -291,7 +290,7 @@ pipeline {
         failure {
             echo '❌ ÉCHEC! Pipeline de sécurité en échec'
             
-            // Notification pour échec
+            // Notification pour échec avec ton email
             script {
                 try {
                     emailext (
@@ -306,8 +305,9 @@ pipeline {
                         <p>Veuillez consulter les logs Jenkins pour plus de détails:</p>
                         <p><a href="${env.BUILD_URL}console">Logs du build</a></p>
                         """,
-                        to: "admin@example.com"
+                        to: "molka.dhrief@esprit.tn"  // ← TON EMAIL ICI
                     )
+                    echo "📧 Email d'échec envoyé à molka.dhrief@esprit.tn"
                 } catch (Exception e) {
                     echo "⚠️ Email notification failed: ${e.message}"
                 }
@@ -317,7 +317,7 @@ pipeline {
         unstable {
             echo '⚠️ Pipeline instable - Problèmes de sécurité détectés'
             
-            // Notification pour problèmes
+            // Notification pour problèmes avec ton email
             script {
                 try {
                     emailext (
@@ -338,9 +338,10 @@ pipeline {
                         
                         <p><a href="${env.BUILD_URL}">Accéder au build</a></p>
                         """,
-                        to: "admin@example.com",
+                        to: "molka.dhrief@esprit.tn",  // ← TON EMAIL ICI
                         attachmentsPattern: "*-report.*,security-*.html,security-*.json"
                     )
+                    echo "📧 Email d'instabilité envoyé à molka.dhrief@esprit.tn"
                 } catch (Exception e) {
                     echo "⚠️ Email notification failed: ${e.message}"
                 }
