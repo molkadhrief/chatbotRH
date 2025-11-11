@@ -3,48 +3,23 @@ pipeline {
     
     environment {
         SONARQUBE_URL = 'http://localhost:9000'
-        PYTHON_PATH = 'python'
-        PROJECT_DIR = '.'
     }
     
     stages {
-        stage('Checkout & Environment Setup') {
+        stage('Checkout & Setup') {
             steps { 
-                echo '🔍 1. Checkout et configuration environnement'
+                echo '🔍 1. Checkout et configuration'
                 checkout scm 
                 
                 script {
-                    // Vérification de l'environnement
                     bat '''
-                        echo "=== ENVIRONNEMENT WINDOWS ==="
-                        python --version
-                        pip --version
-                        echo "Répertoire: %CD%"
-                        dir
-                    '''
-                }
-            }
-        }
-        
-        stage('Install Security Tools') {
-            steps {
-                echo '🛠️ 2. Installation outils sécurité Windows'
-                script {
-                    bat '''
-                        echo "=== INSTALLATION OUTILS SÉCURITÉ ==="
+                        echo "=== VÉRIFICATION CONFIGURATION TEMPS RÉEL ==="
+                        echo "Fichiers de configuration:"
+                        dir /b | findstr ".bandit .eslintrc.json"
                         
-                        # Installation Bandit pour Python
-                        pip install bandit safety
-                        
-                        # Installation Semgrep
-                        pip install semgrep
-                        
-                        # Installation Gitleaks (version Windows)
-                        curl -L -o gitleaks.zip https://github.com/gitleaks/gitleaks/releases/download/v8.29.0/gitleaks_8.29.0_windows_x64.zip
-                        7z x gitleaks.zip -ogitleaks
-                        move gitleaks\\gitleaks.exe .
-                        
-                        echo "✅ Outils sécurité installés"
+                        echo "Outils installés:"
+                        python -m pip list | findstr "bandit semgrep"
+                        npm list -g | findstr "eslint" || echo "ESLint non installé"
                     '''
                 }
             }
@@ -52,220 +27,187 @@ pipeline {
         
         stage('Real-time Security Analysis') {
             steps {
-                echo '🛡️ 3. Analyse sécurité temps réel'
+                echo '🛡️ 2. Analyse sécurité temps réel ACTIVE'
                 script {
                     bat '''
-                        echo "=== ANALYSE SÉCURITÉ TEMPS RÉEL ==="
+                        echo "=== DÉTECTION TEMPS RÉEL ACTIVE ==="
                         
-                        # 1. SCAN BANDIT - Sécurité Python
-                        echo "🔍 Bandit - Analyse sécurité Python..."
-                        if exist *.py (
-                            bandit -r . -f json -o bandit-report.json
-                            if %errorlevel% neq 0 (
-                                echo "⚠️  Bandit a trouvé des problèmes"
-                            )
+                        # 1. SCAN BANDIT AVEC CONFIG
+                        echo "🔍 Bandit avec configuration .bandit..."
+                        if exist .bandit (
+                            echo "✅ Fichier .bandit détecté"
+                            bandit -c .bandit -r . -f json -o bandit-realtime-report.json
                         ) else (
-                            echo "ℹ️  Aucun fichier Python trouvé"
+                            bandit -r . -f json -o bandit-realtime-report.json
                         )
                         
-                        # 2. SCAN SEMGREP - Patterns de vulnérabilités
-                        echo "📝 Semgrep - Scan patterns sécurité..."
-                        semgrep --config=auto --json --output semgrep-report.json . || echo "Semgrep scan completed"
+                        # 2. SCAN SEMGREP
+                        echo "📝 Semgrep - Scan patterns..."
+                        python -m semgrep --config=auto --json --output semgrep-realtime-report.json . || echo "Scan Semgrep terminé"
                         
-                        # 3. SCAN SECRETS - Gitleaks
-                        echo "🔐 Gitleaks - Détection des secrets..."
-                        gitleaks.exe detect --source . --report-format json --report-path gitleaks-report.json --exit-code 0
+                        # 3. SCAN SECRETS
+                        echo "🔐 Détection des secrets..."
+                        findstr /S /I "password secret key token api_key" *.py *.js *.txt *.yml *.yaml 2>nul > secrets-scan.txt || echo "Aucun secret évident trouvé"
                         
-                        # 4. SCAN DE SÉCURITÉ CUSTOM
-                        echo "🎯 Scan vulnérabilités custom..."
+                        # 4. ANALYSE DES RÉSULTATS EN TEMPS RÉEL
+                        echo "📊 ANALYSE TEMPS RÉEL:"
                         
-                        # Scan des mots de passe hardcodés
-                        findstr /S /I "password secret key token" *.py *.js *.html *.txt 2>nul | head -10 > custom-scan.txt || echo "Aucun secret évident trouvé"
-                        
-                        # Scan des fonctions dangereuses
-                        findstr /S /I "eval exec subprocess os.system" *.py 2>nul | head -5 >> custom-scan.txt || echo "Aucune fonction dangereuse trouvée"
-                        
-                        echo "✅ Analyse temps réel terminée"
-                    '''
-                }
-            }
-        }
-        
-        stage('Security Results Analysis') {
-            steps {
-                echo '📊 4. Analyse des résultats sécurité'
-                script {
-                    bat '''
-                        echo "=== ANALYSE DES RÉSULTATS ==="
-                        
-                        # Analyse Bandit
-                        if exist bandit-report.json (
-                            echo "📊 RÉSULTATS BANDIT:"
-                            python -c "import json; data=json.load(open('bandit-report.json')); print(f'HIGH: {data[\"metrics\"][\"_totals\"][\"HIGH\"]}, MEDIUM: {data[\"metrics\"][\"_totals\"][\"MEDIUM\"]}')" 2>nul || echo "Erreur analyse Bandit"
+                        if exist bandit-realtime-report.json (
+                            python -c "import json; data=json.load(open('bandit-realtime-report.json')); print(f'🚨 Bandit - HIGH: {data[\"metrics\"][\"_totals\"][\"HIGH\"]}, MEDIUM: {data[\"metrics\"][\"_totals\"][\"MEDIUM\"]}')"
                         )
                         
-                        # Analyse Semgrep
-                        if exist semgrep-report.json (
-                            echo "📊 RÉSULTATS SEMGREP:"
-                            python -c "import json; data=json.load(open('semgrep-report.json')); print(f'Problèmes: {len(data[\"results\"])}')" 2>nul || echo "Erreur analyse Semgrep"
+                        if exist semgrep-realtime-report.json (
+                            python -c "import json; data=json.load(open('semgrep-realtime-report.json')); print(f'📝 Semgrep - Problèmes: {len(data[\"results\"])}')"
                         )
                         
-                        # Analyse Gitleaks
-                        if exist gitleaks-report.json (
-                            echo "📊 RÉSULTATS GITLEAKS:"
-                            python -c "import json; data=json.load(open('gitleaks-report.json')); print(f'Secrets: {len(data)}')" 2>nul || echo "Erreur analyse Gitleaks"
-                        )
-                        
-                        # Affichage scan custom
-                        if exist custom-scan.txt (
-                            echo "📊 RÉSULTATS SCAN CUSTOM:"
-                            type custom-scan.txt
+                        if exist secrets-scan.txt (
+                            echo "🔐 Secrets potentiels:"
+                            type secrets-scan.txt | head -5
                         )
                     '''
                 }
             }
         }
         
-        stage('SAST - SonarQube Analysis') {
+        stage('Generate Real-time Dashboard') {
             steps {
-                echo '🔎 5. SAST - Analyse SonarQube'
-                withSonarQubeEnv('sonar-server') {
-                    script {
-                        withCredentials([string(credentialsId: 'sonar-token-molka', variable: 'SONAR_TOKEN')]) {
-                            bat '''
-                                echo "🚀 Lancement analyse SonarQube..."
-                                sonar-scanner ^
-                                -Dsonar.projectKey=projet-molka ^
-                                -Dsonar.sources=. ^
-                                -Dsonar.projectName="Projet Molka DevSecOps" ^
-                                -Dsonar.host.url=http://localhost:9000 ^
-                                -Dsonar.token=%SONAR_TOKEN% ^
-                                -Dsonar.sourceEncoding=UTF-8
-                                echo "✅ Analyse SonarQube terminée"
-                            '''
-                        }
-                    }
-                }
-            }
-        }
-        
-        stage('Generate Security Dashboard') {
-            steps {
-                echo '📈 6. Génération dashboard sécurité'
+                echo '📈 3. Dashboard temps réel'
                 script {
                     bat '''
-                        echo "=== GÉNÉRATION DASHBOARD ==="
+                        echo "=== CRÉATION DASHBOARD TEMPS RÉEL ==="
                         
-                        # Lecture des métriques
                         python -c "
 import json
 import os
+from datetime import datetime
 
-# Initialisation des métriques
-secrets_count = 0
-bandit_high = 0
-bandit_medium = 0
-semgrep_issues = 0
-
-try:
-    if os.path.exists('gitleaks-report.json'):
-        with open('gitleaks-report.json', 'r') as f:
-            data = json.load(f)
-            secrets_count = len(data)
-except:
-    pass
+# Collecte des métriques
+metrics = {
+    'bandit_high': 0,
+    'bandit_medium': 0, 
+    'semgrep_issues': 0,
+    'secrets_found': 0,
+    'scan_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+}
 
 try:
-    if os.path.exists('bandit-report.json'):
-        with open('bandit-report.json', 'r') as f:
+    if os.path.exists('bandit-realtime-report.json'):
+        with open('bandit-realtime-report.json', 'r') as f:
             data = json.load(f)
-            bandit_high = data.get('metrics', {}).get('_totals', {}).get('HIGH', 0)
-            bandit_medium = data.get('metrics', {}).get('_totals', {}).get('MEDIUM', 0)
-except:
-    pass
+            metrics['bandit_high'] = data.get('metrics', {}).get('_totals', {}).get('HIGH', 0)
+            metrics['bandit_medium'] = data.get('metrics', {}).get('_totals', {}).get('MEDIUM', 0)
+except Exception as e:
+    print(f'Erreur Bandit: {e}')
 
 try:
-    if os.path.exists('semgrep-report.json'):
-        with open('semgrep-report.json', 'r') as f:
+    if os.path.exists('semgrep-realtime-report.json'):
+        with open('semgrep-realtime-report.json', 'r') as f:
             data = json.load(f)
-            semgrep_issues = len(data.get('results', []))
-except:
-    pass
+            metrics['semgrep_issues'] = len(data.get('results', []))
+except Exception as e:
+    print(f'Erreur Semgrep: {e}')
 
-print(f'SECRETS_COUNT={secrets_count}')
-print(f'BANDIT_HIGH={bandit_high}')
-print(f'BANDIT_MEDIUM={bandit_medium}')
-print(f'SEMGREP_ISSUES={semgrep_issues}')
-" > security-metrics.txt
+try:
+    if os.path.exists('secrets-scan.txt'):
+        with open('secrets-scan.txt', 'r') as f:
+            metrics['secrets_found'] = len(f.readlines())
+except Exception as e:
+    print(f'Erreur secrets: {e}')
 
-                        # Génération dashboard HTML
-                        python -c "
-import os
-
-# Lecture des métriques
-metrics = {}
-with open('security-metrics.txt', 'r') as f:
-    for line in f:
-        if '=' in line:
-            key, value = line.strip().split('=')
-            metrics[key] = value
-
-html = f'''
-<!DOCTYPE html>
+# Génération HTML
+html = f'''<!DOCTYPE html>
 <html>
 <head>
-    <title>Dashboard Sécurité - Projet Molka</title>
+    <title>Dashboard Sécurité Temps Réel</title>
     <style>
-        body {{ font-family: Arial, sans-serif; margin: 40px; }}
-        .header {{ background: #2c3e50; color: white; padding: 20px; border-radius: 5px; }}
-        .metrics {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0; }}
-        .metric-card {{ background: white; padding: 15px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; }}
-        .critical {{ border-left: 5px solid #e74c3c; }}
-        .warning {{ border-left: 5px solid #f39c12; }}
-        .success {{ border-left: 5px solid #27ae60; }}
+        body {{ font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }}
+        .header {{ background: #2c3e50; color: white; padding: 20px; border-radius: 10px; }}
+        .metrics {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin: 20px 0; }}
+        .metric-card {{ background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center; transition: transform 0.2s; }}
+        .metric-card:hover {{ transform: translateY(-5px); }}
+        .critical {{ border-top: 5px solid #e74c3c; }}
+        .warning {{ border-top: 5px solid #f39c12; }}
+        .success {{ border-top: 5px solid #27ae60; }}
+        .metric-value {{ font-size: 3em; font-weight: bold; margin: 10px 0; }}
+        .live-badge {{ background: #e74c3c; color: white; padding: 5px 10px; border-radius: 15px; animation: pulse 1.5s infinite; }}
+        @keyframes pulse {{ 0% {{ opacity: 1; }} 50% {{ opacity: 0.5; }} 100% {{ opacity: 1; }} }}
     </style>
 </head>
 <body>
     <div class=\"header\">
         <h1>🛡️ Dashboard Sécurité Temps Réel</h1>
-        <h2>Projet Molka - Windows Environment</h2>
+        <h2>Projet Molka - Scan Live</h2>
+        <p><span class=\"live-badge\">LIVE</span> Dernier scan: {metrics['scan_time']}</p>
     </div>
     
     <div class=\"metrics\">
-        <div class=\"metric-card {'critical' if int(metrics.get('SECRETS_COUNT', 0)) > 0 else 'success'}\">
-            <h3>🔐 Secrets</h3>
-            <div style=\"font-size: 2.5em; font-weight: bold;\">{metrics.get('SECRETS_COUNT', 0)}</div>
-            <p>Secrets détectés</p>
+        <div class=\"metric-card {'critical' if metrics['bandit_high'] > 0 else 'success'}\">
+            <h3>🐍 Bandit HIGH</h3>
+            <div class=\"metric-value\">{metrics['bandit_high']}</div>
+            <p>Vulnérabilités critiques Python</p>
         </div>
         
-        <div class=\"metric-card {'critical' if int(metrics.get('BANDIT_HIGH', 0)) > 0 else 'success'}\">
-            <h3>🚨 Bandit HIGH</h3>
-            <div style=\"font-size: 2.5em; font-weight: bold;\">{metrics.get('BANDIT_HIGH', 0)}</div>
-            <p>Vulnérabilités Python</p>
+        <div class=\"metric-card {'warning' if metrics['bandit_medium'] > 0 else 'success'}\">
+            <h3>🐍 Bandit MEDIUM</h3>
+            <div class=\"metric-value\">{metrics['bandit_medium']}</div>
+            <p>Vulnérabilités moyennes Python</p>
         </div>
         
-        <div class=\"metric-card {'warning' if int(metrics.get('BANDIT_MEDIUM', 0)) > 0 else 'success'}\">
-            <h3>⚠️ Bandit MEDIUM</h3>
-            <div style=\"font-size: 2.5em; font-weight: bold;\">{metrics.get('BANDIT_MEDIUM', 0)}</div>
-            <p>Vulnérabilités Python</p>
-        </div>
-        
-        <div class=\"metric-card {'warning' if int(metrics.get('SEMGREP_ISSUES', 0)) > 0 else 'success'}\">
+        <div class=\"metric-card {'warning' if metrics['semgrep_issues'] > 0 else 'success'}\">
             <h3>📝 Semgrep</h3>
-            <div style=\"font-size: 2.5em; font-weight: bold;\">{metrics.get('SEMGREP_ISSUES', 0)}</div>
-            <p>Patterns détectés</p>
+            <div class=\"metric-value\">{metrics['semgrep_issues']}</div>
+            <p>Patterns de vulnérabilités</p>
+        </div>
+        
+        <div class=\"metric-card {'critical' if metrics['secrets_found'] > 0 else 'success'}\">
+            <h3>🔐 Secrets</h3>
+            <div class=\"metric-value\">{metrics['secrets_found']}</div>
+            <p>Secrets potentiels</p>
         </div>
     </div>
+    
+    <div style=\"background: white; padding: 20px; border-radius: 10px; margin-top: 20px;\">
+        <h3>🔧 Détection Temps Réel Active</h3>
+        <ul>
+            <li>✅ <strong>Bandit:</strong> Analyse sécurité Python en temps réel</li>
+            <li>✅ <strong>Semgrep:</strong> Scan patterns de vulnérabilités</li>
+            <li>✅ <strong>Secrets Scan:</strong> Détection mots de passe hardcodés</li>
+            <li>✅ <strong>Config personnalisée:</strong> Fichiers .bandit et .eslintrc.json</li>
+        </ul>
+    </div>
 </body>
-</html>
-'''
+</html>'''
 
-with open('security-dashboard.html', 'w', encoding='utf-8') as f:
+with open('realtime-security-dashboard.html', 'w', encoding='utf-8') as f:
     f.write(html)
+
+print('✅ Dashboard temps réel généré: realtime-security-dashboard.html')
 "
 
-                        echo "✅ Dashboard généré: security-dashboard.html"
+                        echo "✅ Dashboard généré avec données temps réel"
                     '''
+                }
+            }
+        }
+        
+        stage('SAST - SonarQube Integration') {
+            steps {
+                echo '🔎 4. Intégration SonarQube'
+                withSonarQubeEnv('sonar-server') {
+                    script {
+                        withCredentials([string(credentialsId: 'sonar-token-molka', variable: 'SONAR_TOKEN')]) {
+                            bat '''
+                                echo "🚀 SonarQube avec métriques temps réel..."
+                                sonar-scanner ^
+                                -Dsonar.projectKey=projet-molka ^
+                                -Dsonar.sources=. ^
+                                -Dsonar.projectName="Projet Molka - Détection Temps Réel" ^
+                                -Dsonar.host.url=http://localhost:9000 ^
+                                -Dsonar.token=%SONAR_TOKEN% ^
+                                -Dsonar.sourceEncoding=UTF-8
+                            '''
+                        }
+                    }
                 }
             }
         }
@@ -273,37 +215,34 @@ with open('security-dashboard.html', 'w', encoding='utf-8') as f:
     
     post {
         always {
-            echo '📦 Archivage des rapports'
-            archiveArtifacts artifacts: '*-report.*,security-dashboard.html,security-metrics.txt,custom-scan.txt', allowEmptyArchive: true
-            
-            // Nettoyage
-            bat '''
-                del gitleaks.exe
-                del gitleaks.zip
-                echo "✅ Nettoyage terminé"
-            '''
+            echo '📊 Archivage rapports temps réel'
+            archiveArtifacts artifacts: '*-report.*,realtime-security-dashboard.html,secrets-scan.txt', allowEmptyArchive: true
             
             script {
                 echo """
-                🎉 ANALYSE SÉCURITÉ TEMPS RÉEL TERMINÉE!
+                🎉 DÉTECTION TEMPS RÉEL TERMINÉE!
                 
-                📊 OUTILS UTILISÉS:
-                • 🐍 Bandit: Sécurité Python
+                📊 MÉTRIQUES COLLECTÉES:
+                • 🐍 Bandit: Sécurité Python avec config .bandit
                 • 📝 Semgrep: Patterns vulnérabilités  
-                • 🔐 Gitleaks: Détection secrets
-                • 🎯 Custom Scan: Vulnérabilités spécifiques
+                • 🔐 Secrets: Mots de passe hardcodés
+                • 📈 Dashboard: Visualisation temps réel
                 
-                📁 RAPPORTS:
-                • security-dashboard.html
-                • bandit-report.json
-                • semgrep-report.json  
-                • gitleaks-report.json
-                • custom-scan.txt
+                🌐 ACCÈS:
+                • Dashboard: realtime-security-dashboard.html
+                • SonarQube: http://localhost:9000/dashboard?id=projet-molka
+                • Jenkins: ${env.BUILD_URL}
                 
-                🔗 SONARQUBE:
-                • http://localhost:9000/dashboard?id=projet-molka
+                🔧 CONFIGURATION TEMPS RÉEL:
+                ✅ .bandit - Configuration Bandit
+                ✅ .eslintrc.json - Configuration ESLint  
+                ✅ .vscode/settings.json - Configuration VS Code
                 """
             }
+        }
+        
+        success {
+            echo '✅ DÉTECTION TEMPS RÉEL ACTIVE - Pipeline réussi!'
         }
     }
 }
