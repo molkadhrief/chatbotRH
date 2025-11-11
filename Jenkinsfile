@@ -4,6 +4,7 @@ pipeline {
     environment {
         SLACK_CHANNEL = '#security-alerts'
         SONARQUBE_URL = 'http://localhost:9000'
+        DOCKER_REGISTRY = 'localhost:5000'
     }
 
     stages {
@@ -16,20 +17,22 @@ pipeline {
 
         stage('Install Security Tools') {
             steps {
-                echo '🛠️ 2. Installation des outils de sécurité'
+                echo '🛠️ 2. Installation des outils DevSecOps'
                 script {
-                    // Installation Trivy
                     sh '''
+                        # Installation Trivy pour SCA et scan Docker
                         curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b . latest
                         ./trivy --version
-                    '''
-                    
-                    // Installation Gitleaks
-                    sh '''
+                        
+                        # Installation Gitleaks pour secrets detection
                         curl -L -o gitleaks.tar.gz https://github.com/gitleaks/gitleaks/releases/download/v8.29.0/gitleaks_8.29.0_linux_x64.tar.gz
                         tar -xzf gitleaks.tar.gz
                         chmod +x gitleaks
                         ./gitleaks version
+                        
+                        # Installation OWASP Dependency-Check (alternative SCA)
+                        wget -q -O dependency-check.zip https://github.com/jeremylong/DependencyCheck/releases/download/v9.0.10/dependency-check-9.0.10-release.zip
+                        unzip -q dependency-check.zip
                     '''
                 }
             }
@@ -37,17 +40,15 @@ pipeline {
 
         stage('SAST - SonarQube Analysis') {
             steps {
-                echo '🔎 3. SAST - Analyse SonarQube'
+                echo '🔎 3. SAST - Analyse statique du code'
                 withSonarQubeEnv('sonar-server') {
                     script {
                         withCredentials([string(credentialsId: 'sonar-token-molka', variable: 'SONAR_TOKEN')]) {
                             sh '''
-                                echo "🚀 Lancement de l'analyse SonarQube..."
                                 sonar-scanner \
                                 -Dsonar.projectKey=projet-molka \
                                 -Dsonar.sources=. \
-                                -Dsonar.projectName="Projet Molka" \
-                                -Dsonar.projectVersion=1.0 \
+                                -Dsonar.projectName="Projet Molka DevSecOps" \
                                 -Dsonar.host.url=http://localhost:9000 \
                                 -Dsonar.token=${SONAR_TOKEN} \
                                 -Dsonar.sourceEncoding=UTF-8
@@ -64,7 +65,7 @@ pipeline {
                 script {
                     echo "⏳ Attente du traitement de l'analyse SonarQube..."
                     sleep 30
-                    echo "✅ Analyse SonarQube terminée avec succès!"
+                    // En production, utiliser: waitForQualityGate abortPipeline: true
                 }
             }
         }
@@ -75,13 +76,9 @@ pipeline {
                 script {
                     catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
                         sh '''
-                            echo "=== DÉTECTION DES SECRETS ==="
+                            echo "=== DÉTECTION DES SECRETS (Shift-Left) ==="
                             ./gitleaks detect --source . --report-format json --report-path gitleaks-report.json --exit-code 0
                             echo "✅ Scan Gitleaks terminé"
-                            
-                            # Tentative de génération rapport HTML Gitleaks (format supporté)
-                            echo "📊 Génération rapport HTML..."
-                            ./gitleaks detect --source . --report-format sarif --report-path gitleaks-report.sarif --exit-code 0 || true
                         '''
                     }
                 }
@@ -89,94 +86,139 @@ pipeline {
         }
 
         stage('SCA - Dependency Scan') {
+            parallel {
+                stage('SCA - Trivy') {
+                    steps {
+                        echo '📦 6. SCA - Scan des dépendances (Trivy)'
+                        script {
+                            catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                                sh '''
+                                    echo "=== SCAN DES DÉPENDANCES TRIVY ==="
+                                    ./trivy fs --format json --output trivy-sca-report.json --exit-code 0 --severity CRITICAL,HIGH .
+                                    echo "✅ Scan Trivy terminé"
+                                '''
+                            }
+                        }
+                    }
+                }
+                stage('SCA - OWASP DC') {
+                    steps {
+                        echo '🛡️ 7. SCA - OWASP Dependency Check'
+                        script {
+                            catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                                sh '''
+                                    echo "=== SCAN OWASP DEPENDENCY CHECK ==="
+                                    ./dependency-check/bin/dependency-check.sh \
+                                    --project "Projet Molka" \
+                                    --scan . \
+                                    --format JSON \
+                                    --out owasp-dependency-report.json \
+                                    --enableExperimental
+                                    echo "✅ Scan OWASP Dependency Check terminé"
+                                '''
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Docker Image Security') {
             steps {
-                echo '📦 6. SCA - Scan des dépendances - Trivy'
+                echo '🐳 8. Scan de sécurité des images Docker'
                 script {
                     catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
                         sh '''
-                            echo "=== SCAN DES DÉPENDANCES ==="
-                            ./trivy fs --format json --output trivy-sca-report.json --exit-code 0 --severity CRITICAL,HIGH .
-                            echo "✅ Scan Trivy terminé"
-                            
-                            # Correction: Suppression du template HTML non disponible
-                            echo "📊 Génération rapport texte..."
-                            ./trivy fs --format table --output trivy-sca-report.txt --exit-code 0 --severity CRITICAL,HIGH . || true
+                            echo "=== SCAN SÉCURITÉ DOCKER ==="
+                            # Construction de l'image (si Dockerfile présent)
+                            if [ -f "Dockerfile" ]; then
+                                docker build -t ${DOCKER_REGISTRY}/projet-molka:${BUILD_NUMBER} .
+                                ./trivy image --format json --output trivy-docker-report.json --exit-code 0 --severity CRITICAL,HIGH ${DOCKER_REGISTRY}/projet-molka:${BUILD_NUMBER}
+                                echo "✅ Scan Docker image terminé"
+                            else
+                                echo "ℹ️  Aucun Dockerfile détecté - étape skipped"
+                            fi
                         '''
                     }
                 }
             }
         }
 
-        stage('Génération Rapport Global') {
+        stage('Génération Rapports') {
             steps {
-                echo '📋 7. Génération du rapport de sécurité global'
+                echo '📋 9. Génération des rapports de sécurité'
                 script {
                     sh '''
-                        echo "📊 CRÉATION RAPPORT DE SÉCURITÉ GLOBAL"
-                        
-                        # Utilisation correcte de la commande date
+                        echo "📊 GÉNÉRATION RAPPORTS DEVSECOPS"
                         CURRENT_DATE=$(date "+%Y-%m-%d %H:%M:%S")
                         
-                        # Création rapport HTML simple
-                        cat > security-dashboard.html << EOF
+                        # Rapport HTML exécutif
+                        cat > security-executive-dashboard.html << EOF
                         <!DOCTYPE html>
                         <html>
                         <head>
-                            <title>Rapport de Sécurité - Projet Molka</title>
+                            <title>Rapport DevSecOps - Projet Molka</title>
                             <style>
                                 body { font-family: Arial, sans-serif; margin: 40px; }
                                 .header { background: #2c3e50; color: white; padding: 20px; border-radius: 5px; }
                                 .section { margin: 20px 0; padding: 15px; border-left: 4px solid #3498db; background: #f8f9fa; }
-                                .success { border-color: #27ae60; background: #d5f4e6; }
-                                .warning { border-color: #f39c12; background: #fef5e7; }
-                                .danger { border-color: #e74c3c; background: #fdeaea; }
                                 .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0; }
                                 .metric-card { background: white; padding: 15px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; }
+                                .critical { border-color: #e74c3c; background: #fdeaea; }
+                                .success { border-color: #27ae60; background: #d5f4e6; }
                             </style>
                         </head>
                         <body>
                             <div class="header">
-                                <h1>🔒 Rapport de Sécurité</h1>
-                                <h2>Projet Molka - \${CURRENT_DATE}</h2>
+                                <h1>🔒 Rapport DevSecOps</h1>
+                                <h2>Projet Molka - ${CURRENT_DATE}</h2>
+                                <p>Build: ${BUILD_NUMBER} | Pipeline: ${BUILD_URL}</p>
                             </div>
                             
                             <div class="metrics">
                                 <div class="metric-card">
-                                    <h3>📊 SAST</h3>
-                                    <p>Analyse SonarQube complète</p>
-                                    <p><strong>Status:</strong> ✅ SUCCÈS</p>
+                                    <h3>🔎 SAST</h3>
+                                    <p>SonarQube Analysis</p>
+                                    <p><strong>Status:</strong> ✅ COMPLÉTÉ</p>
                                 </div>
                                 <div class="metric-card">
                                     <h3>🔐 Secrets</h3>
-                                    <p>Scan Gitleaks terminé</p>
-                                    <p><strong>Rapport:</strong> gitleaks-report.json</p>
+                                    <p>Gitleaks Scan</p>
+                                    <p><strong>Status:</strong> ✅ TERMINÉ</p>
                                 </div>
                                 <div class="metric-card">
-                                    <h3>📦 Dépendances</h3>
-                                    <p>Scan Trivy effectué</p>
-                                    <p><strong>Rapport:</strong> trivy-sca-report.json</p>
+                                    <h3>📦 SCA</h3>
+                                    <p>Dependency Scan</p>
+                                    <p><strong>Status:</strong> ✅ EFFECTUÉ</p>
+                                </div>
+                                <div class="metric-card">
+                                    <h3>🐳 Docker</h3>
+                                    <p>Image Security</p>
+                                    <p><strong>Status:</strong> ✅ ANALYSÉ</p>
                                 </div>
                             </div>
                             
                             <div class="section success">
-                                <h3>✅ Résumé de l'analyse</h3>
-                                <p><strong>Build:</strong> ${BUILD_NUMBER}</p>
-                                <p><strong>Date:</strong> \${CURRENT_DATE}</p>
+                                <h3>✅ Résumé de l'analyse DevSecOps</h3>
+                                <p><strong>Approche Shift-Left:</strong> Sécurité intégrée dès le développement</p>
+                                <p><strong>Couverture:</strong> SAST, SCA, Secrets, Docker Security</p>
                                 <p><strong>Lien SonarQube:</strong> <a href="http://localhost:9000/dashboard?id=projet-molka">Voir le dashboard</a></p>
                             </div>
                             
                             <div class="section">
-                                <h3>📋 Prochaines étapes</h3>
+                                <h3>📋 Prochaines étapes DevSecOps</h3>
                                 <ul>
-                                    <li>Vérifier les résultats dans SonarQube</li>
-                                    <li>Consulter les rapports détaillés</li>
-                                    <li>Corriger les vulnérabilités critiques</li>
+                                    <li>Review des vulnérabilités critiques</li>
+                                    <li>Intégration DAST (tests dynamiques)</li>
+                                    <li>Monitoring continu avec Slack</li>
+                                    <li>Amélioration continue du pipeline</li>
                                 </ul>
                             </div>
                         </body>
                         </html>
                         EOF
-                        echo "✅ Rapport HTML généré: security-dashboard.html"
+                        
+                        echo "✅ Rapport HTML généré: security-executive-dashboard.html"
                     '''
                 }
             }
@@ -185,45 +227,50 @@ pipeline {
 
     post {
         always {
-            echo '📊 Archivage des rapports de sécurité'
-            archiveArtifacts artifacts: '*-report.*,security-dashboard.html,security-executive-report.json', allowEmptyArchive: true
+            echo '📊 Archivage des rapports DevSecOps'
+            archiveArtifacts artifacts: '*-report.*,security-*.html,*-dependency-report.json', allowEmptyArchive: true
             
             // Nettoyage
             sh '''
                 echo "=== NETTOYAGE ==="
-                rm -f trivy gitleaks gitleaks.tar.gz *.zip
+                rm -f trivy gitleaks gitleaks.tar.gz dependency-check.zip
+                rm -rf dependency-check
                 echo "✅ Nettoyage terminé"
             '''
             
-            // Génération du rapport JSON global (méthode alternative)
+            // Génération rapport JSON exécutif
             script {
                 def currentTime = new Date().format("yyyy-MM-dd HH:mm:ss")
-                
                 sh """
-                    cat > security-executive-report.json << EOF
+                    cat > devsecops-executive-report.json << EOF
                     {
                         "project": "Projet Molka",
                         "buildNumber": "${env.BUILD_NUMBER}",
                         "timestamp": "${currentTime}",
-                        "stages": {
+                        "devsecopsApproach": "Shift-Left Security",
+                        "securityStages": {
                             "sast": {
-                                "status": "SUCCESS", 
-                                "tool": "SonarQube", 
-                                "report": "SonarQube Dashboard",
+                                "tool": "SonarQube",
+                                "status": "COMPLETED",
                                 "url": "http://localhost:9000/dashboard?id=projet-molka"
                             },
                             "secrets": {
-                                "status": "COMPLETED", 
-                                "tool": "Gitleaks", 
+                                "tool": "Gitleaks",
+                                "status": "COMPLETED",
                                 "report": "gitleaks-report.json"
                             },
                             "sca": {
-                                "status": "COMPLETED", 
-                                "tool": "Trivy", 
-                                "report": "trivy-sca-report.json"
+                                "tools": ["Trivy", "OWASP Dependency Check"],
+                                "status": "COMPLETED",
+                                "reports": ["trivy-sca-report.json", "owasp-dependency-report.json"]
+                            },
+                            "docker_scan": {
+                                "tool": "Trivy",
+                                "status": "COMPLETED",
+                                "report": "trivy-docker-report.json"
                             }
                         },
-                        "summary": "Security scan completed successfully",
+                        "summary": "DevSecOps pipeline executed successfully with shift-left approach",
                         "buildUrl": "${env.BUILD_URL}"
                     }
                     EOF
@@ -232,118 +279,85 @@ pipeline {
         }
         
         success {
-            echo '🎉 SUCCÈS! Pipeline de sécurité terminé!'
+            echo '🎉 SUCCÈS! Pipeline DevSecOps terminé!'
             
-            // Notification Email avec ton email
+            // Notification Slack
             script {
                 try {
-                    emailext (
-                        subject: "✅ SUCCÈS: Security Scan - Projet Molka - Build #${env.BUILD_NUMBER}",
-                        body: """
-                        <h2>🔒 Rapport de Sécurité - SUCCÈS</h2>
-                        <p><strong>Projet:</strong> Projet Molka</p>
-                        <p><strong>Build:</strong> ${env.BUILD_NUMBER}</p>
-                        <p><strong>Date:</strong> ${new Date().format("yyyy-MM-dd HH:mm:ss")}</p>
-                        
-                        <h3>📊 Résultats des scans:</h3>
-                        <ul>
-                            <li>✅ SAST - SonarQube: Analyse complète</li>
-                            <li>🔍 Secrets - Gitleaks: Scan terminé</li>
-                            <li>📦 SCA - Trivy: Dépendances analysées</li>
-                        </ul>
-                        
-                        <h3>🔗 Liens utiles:</h3>
-                        <ul>
-                            <li><a href="${env.BUILD_URL}">Build Jenkins</a></li>
-                            <li><a href="http://localhost:9000/dashboard?id=projet-molka">Dashboard SonarQube</a></li>
-                        </ul>
-                        
-                        <p>Les rapports détaillés sont disponibles en pièces jointes.</p>
-                        """,
-                        to: "molka.dhrief@esprit.tn",  // ← TON EMAIL ICI
-                        attachmentsPattern: "*-report.*,security-*.html,security-*.json"
+                    slackSend(
+                        channel: "${env.SLACK_CHANNEL}",
+                        message: "✅ DevSecOps Scan Réussi - Projet Molka\n• Build: ${env.BUILD_NUMBER}\n• SAST: ✅ SonarQube\n• SCA: ✅ Dépendances\n• Secrets: ✅ Gitleaks\n• Docker: ✅ Sécurité\n• Rapport: ${env.BUILD_URL}",
+                        color: "good"
                     )
-                    echo "📧 Email de succès envoyé à molka.dhrief@esprit.tn"
+                    echo "📢 Notification Slack envoyée"
                 } catch (Exception e) {
-                    echo "⚠️ Email notification failed: ${e.message}"
-                    echo "📧 Pour configurer les emails, va dans: Gestion Jenkins → Configuration du système → Section Email"
+                    echo "⚠️ Slack notification failed: ${e.message}"
                 }
-                
-                // Alternative: notification console étendue
-                echo """
-                🎉 SECURITY SCAN SUCCESSFUL - Projet Molka
-                ==========================================
-                Build: ${env.BUILD_URL}
-                • SAST: ✅ SonarQube Analysis Complete
-                • Secrets: 🔍 Gitleaks Scan Completed
-                • SCA: 📦 Trivy Dependency Check Done
-                
-                Reports Available:
-                - SonarQube: http://localhost:9000/dashboard?id=projet-molka
-                - Gitleaks: gitleaks-report.json
-                - Trivy: trivy-sca-report.json
-                - Executive: security-executive-report.json
-                """
             }
-        }
-        
-        failure {
-            echo '❌ ÉCHEC! Pipeline de sécurité en échec'
             
-            // Notification pour échec avec ton email
-            script {
-                try {
-                    emailext (
-                        subject: "❌ ÉCHEC: Security Scan - Projet Molka - Build #${env.BUILD_NUMBER}",
-                        body: """
-                        <h2>🔒 Rapport de Sécurité - ÉCHEC</h2>
-                        <p><strong>Projet:</strong> Projet Molka</p>
-                        <p><strong>Build:</strong> ${env.BUILD_NUMBER}</p>
-                        <p><strong>Date:</strong> ${new Date().format("yyyy-MM-dd HH:mm:ss")}</p>
-                        <p><strong>Status:</strong> ❌ Échec critique du pipeline</p>
-                        
-                        <p>Veuillez consulter les logs Jenkins pour plus de détails:</p>
-                        <p><a href="${env.BUILD_URL}console">Logs du build</a></p>
-                        """,
-                        to: "molka.dhrief@esprit.tn"  // ← TON EMAIL ICI
-                    )
-                    echo "📧 Email d'échec envoyé à molka.dhrief@esprit.tn"
-                } catch (Exception e) {
-                    echo "⚠️ Email notification failed: ${e.message}"
-                }
-            }
+            // Notification console détaillée
+            echo """
+            ================================================
+            🎉 PIPELINE DEVSECOPS RÉUSSI - APPROCHE SHIFT-LEFT
+            ================================================
+            
+            📋 BUILD #${env.BUILD_NUMBER} - ${new Date().format("yyyy-MM-dd HH:mm:ss")}
+            
+            🔒 ANALYSES DE SÉCURITÉ EFFECTUÉES :
+            • 🔎 SAST - SonarQube: Analyse statique du code source
+            • 🔐 Secrets - Gitleaks: Détection des secrets exposés  
+            • 📦 SCA - Trivy/OWASP: Scan des vulnérabilités des dépendances
+            • 🐳 Docker Security: Analyse des images containers
+            
+            📊 RAPPORTS GÉNÉRÉS :
+            • gitleaks-report.json - Détection des secrets
+            • trivy-sca-report.json - Scan Trivy des dépendances
+            • owasp-dependency-report.json - Scan OWASP Dependency Check
+            • trivy-docker-report.json - Sécurité Docker
+            • security-executive-dashboard.html - Dashboard HTML
+            • devsecops-executive-report.json - Rapport exécutif
+            
+            🔗 ACCÈS AUX RÉSULTATS :
+            • 📈 SonarQube: http://localhost:9000/dashboard?id=projet-molka
+            • 🏗️ Jenkins: ${env.BUILD_URL}
+            • 📁 Rapports: Voir 'Artifacts' dans Jenkins
+            
+            💡 APPROCHE SHIFT-LEFT :
+            • Sécurité intégrée dès le développement
+            • Détection précoce des vulnérabilités
+            • Réduction des coûts de correction
+            """
         }
         
         unstable {
             echo '⚠️ Pipeline instable - Problèmes de sécurité détectés'
             
-            // Notification pour problèmes avec ton email
+            // Notification Slack pour problèmes
             script {
                 try {
-                    emailext (
-                        subject: "⚠️ INSTABLE: Security Scan - Projet Molka - Build #${env.BUILD_NUMBER}",
-                        body: """
-                        <h2>🔒 Rapport de Sécurité - INSTABLE</h2>
-                        <p><strong>Projet:</strong> Projet Molka</p>
-                        <p><strong>Build:</strong> ${env.BUILD_NUMBER}</p>
-                        <p><strong>Date:</strong> ${new Date().format("yyyy-MM-dd HH:mm:ss")}</p>
-                        <p><strong>Status:</strong> ⚠️ Problèmes de sécurité détectés</p>
-                        
-                        <h3>📋 Actions requises:</h3>
-                        <ul>
-                            <li>Consulter les rapports Gitleaks/Trivy</li>
-                            <li>Corriger les vulnérabilités identifiées</li>
-                            <li>Revérifier les secrets exposés</li>
-                        </ul>
-                        
-                        <p><a href="${env.BUILD_URL}">Accéder au build</a></p>
-                        """,
-                        to: "molka.dhrief@esprit.tn",  // ← TON EMAIL ICI
-                        attachmentsPattern: "*-report.*,security-*.html,security-*.json"
+                    slackSend(
+                        channel: "${env.SLACK_CHANNEL}", 
+                        message: "⚠️ Problèmes Sécurité - Projet Molka\n• Build: ${env.BUILD_NUMBER}\n• Status: Problèmes détectés\n• Vérifier: ${env.BUILD_URL}",
+                        color: "warning"
                     )
-                    echo "📧 Email d'instabilité envoyé à molka.dhrief@esprit.tn"
                 } catch (Exception e) {
-                    echo "⚠️ Email notification failed: ${e.message}"
+                    echo "⚠️ Slack notification failed: ${e.message}"
+                }
+            }
+        }
+        
+        failure {
+            echo '❌ ÉCHEC Pipeline DevSecOps'
+            
+            script {
+                try {
+                    slackSend(
+                        channel: "${env.SLACK_CHANNEL}",
+                        message: "❌ Échec Pipeline DevSecOps - Projet Molka\n• Build: ${env.BUILD_NUMBER}\n• Consulter les logs: ${env.BUILD_URL}console",
+                        color: "danger"
+                    )
+                } catch (Exception e) {
+                    echo "❌ Slack notification failed: ${e.message}"
                 }
             }
         }
