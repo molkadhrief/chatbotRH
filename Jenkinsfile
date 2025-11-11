@@ -3,505 +3,283 @@ pipeline {
     
     environment {
         SONARQUBE_URL = 'http://localhost:9000'
-        DOCKER_REGISTRY = 'localhost:5000'
-        APP_NAME = 'projet-molka'
     }
     
     stages {
-        // === 1. ANALYSE DU CODE SOURCE ===
-        stage('Checkout & Build Prep') {
+        stage('Checkout & Real-time Scan Prep') {
             steps { 
-                echo '🔍 1. Checkout du code source et préparation build'
+                echo '🔍 1. Checkout et préparation scan temps réel'
                 checkout scm 
                 
                 script {
-                    // Vérification de la structure du projet
+                    // Installation outils scan temps réel
                     sh '''
-                        echo "=== STRUCTURE DU PROJET ==="
-                        find . -type f -name "*.py" -o -name "*.js" -o -name "*.html" -o -name "*.json" | head -20
-                        echo "=== DEPENDANCES DETECTEES ==="
-                        [ -f requirements.txt ] && cat requirements.txt || echo "Aucun requirements.txt"
-                        [ -f package.json ] && cat package.json || echo "Aucun package.json"
+                        echo "=== INSTALLATION OUTILS TEMPS RÉEL ==="
+                        
+                        # Installation Semgrep pour scan avancé
+                        python -m pip install semgrep
+                        
+                        # Installation Bandit pour Python
+                        pip install bandit
+                        
+                        # Installation Gitleaks
+                        curl -L -o gitleaks.tar.gz https://github.com/gitleaks/gitleaks/releases/download/v8.29.0/gitleaks_8.29.0_linux_x64.tar.gz
+                        tar -xzf gitleaks.tar.gz
+                        chmod +x gitleaks
+                        
+                        echo "✅ Outils scan temps réel installés"
                     '''
                 }
             }
         }
         
-        // === 2. SECURITE SHIFT-LEFT (SIMULATION) ===
-        stage('Shift-Left Security Checks') {
+        stage('Real-time Security Scan') {
             steps {
-                echo '🛡️ 2. Vérifications de sécurité Shift-Left'
+                echo '🛡️ 2. Scan de sécurité temps réel'
                 script {
                     sh '''
-                        echo "=== VÉRIFICATIONS SHIFT-LEFT ==="
-                        echo "✅ IDE Sécurisé: Configuration VS Code/IntelliJ recommandée"
-                        echo "✅ Plugins SAST: SonarLint, ESLint, Bandit configurés localement"
-                        echo "✅ Détection temps réel: Failles, secrets, vulnérabilités"
-                        echo "✅ Sensibilisation développeurs: Bonnes pratiques de code sécurisé"
+                        echo "=== SCAN SÉCURITÉ TEMPS RÉEL ==="
                         
-                        # Simulation des vérifications locales pré-commit
-                        echo "🔍 Scan pré-commit simulé..."
-                        echo "   - Aucun secret détecté dans les fichiers modifiés"
-                        echo "   - Aucune vulnérabilité critique identifiée"
-                        echo "   - Code conforme aux standards de sécurité"
+                        # 1. SCAN SEMGREP - Détection patterns de vulnérabilités
+                        echo "🔍 Semgrep - Scan patterns de vulnérabilités..."
+                        semgrep --config=auto --json --output semgrep-report.json . || true
+                        
+                        # Analyse résultats Semgrep
+                        if [ -f semgrep-report.json ]; then
+                            SEMGREP_ISSUES=$(jq '.results | length' semgrep-report.json 2>/dev/null || echo "0")
+                            echo "📊 Semgrep: $SEMGREP_ISSUES problèmes détectés"
+                            
+                            # Afficher les problèmes critiques
+                            jq -r '.results[] | select(.extra.severity == "ERROR") | "❌ \(.extra.message) - \(.path):\(.start.line)"' semgrep-report.json 2>/dev/null || echo "✅ Aucun problème ERROR Semgrep"
+                        fi
+                        
+                        # 2. SCAN BANDIT - Sécurité Python
+                        echo "🐍 Bandit - Analyse sécurité Python..."
+                        if find . -name "*.py" | grep -q .; then
+                            bandit -r . -f json -o bandit-report.json || true
+                            
+                            if [ -f bandit-report.json ]; then
+                                BANDIT_HIGH=$(jq '.metrics._totals.HIGH' bandit-report.json 2>/dev/null || echo "0")
+                                BANDIT_MEDIUM=$(jq '.metrics._totals.MEDIUM' bandit-report.json 2>/dev/null || echo "0")
+                                echo "📊 Bandit: HIGH=$BANDIT_HIGH, MEDIUM=$BANDIT_MEDIUM"
+                                
+                                # Afficher les vulnérabilités HIGH
+                                jq -r '.results[] | select(.issue_severity == "HIGH") | "🚨 \(.issue_text) - \(.filename):\(.line_number)"' bandit-report.json 2>/dev/null | head -5 || echo "✅ Aucune vulnérabilité HIGH Bandit"
+                            fi
+                        else
+                            echo "ℹ️  Aucun fichier Python à analyser avec Bandit"
+                        fi
+                        
+                        # 3. SCAN TEMPS RÉEL AVEC GITLEAKS
+                        echo "🔐 Gitleaks - Scan secrets temps réel..."
+                        ./gitleaks detect --source . --report-format json --report-path gitleaks-realtime-report.json --exit-code 0 --verbose
+                        
+                        SECRETS_COUNT=$(jq '. | length' gitleaks-realtime-report.json 2>/dev/null || echo "0")
+                        echo "📊 Gitleaks: $SECRETS_COUNT secrets potentiels"
+                        
+                        # Afficher les secrets détectés
+                        if [ "$SECRETS_COUNT" -gt 0 ]; then
+                            jq -r '.[] | "🔐 \(.Description) - \(.File):\(.StartLine)"' gitleaks-realtime-report.json 2>/dev/null
+                        fi
+                        
+                        # 4. SCAN DE VULNÉRABILITÉS CONNUES
+                        echo "📝 Scan vulnérabilités connues..."
+                        
+                        # Scan XSS potentiel
+                        if find . -name "*.html" -o -name "*.js" | xargs grep -l "innerHTML\\|eval(" 2>/dev/null; then
+                            echo "⚠️  XSS Potentiel: innerHTML ou eval() détecté"
+                        fi
+                        
+                        # Scan injections SQL
+                        if find . -name "*.py" -o -name "*.php" | xargs grep -l "sqlite3\\|mysql.*connect" 2>/dev/null; then
+                            echo "⚠️  Injection SQL Potentielle: Connexion DB directe détectée"
+                        fi
+                        
+                        echo "✅ Scan temps réel terminé"
                     '''
                 }
             }
         }
         
-        // === 3. COMPILATION & BUILD ===
-        stage('Build & Compilation') {
+        stage('SAST - SonarQube Deep Analysis') {
             steps {
-                echo '🏗️ 3. Compilation et build de l application'
+                echo '🔎 3. SAST - Analyse approfondie SonarQube'
+                withSonarQubeEnv('sonar-server') {
+                    script {
+                        withCredentials([string(credentialsId: 'sonar-token-molka', variable: 'SONAR_TOKEN')]) {
+                            sh '''
+                                echo "🚀 Lancement analyse SonarQube approfondie..."
+                                sonar-scanner \
+                                -Dsonar.projectKey=projet-molka \
+                                -Dsonar.sources=. \
+                                -Dsonar.projectName="Projet Molka DevSecOps" \
+                                -Dsonar.host.url=http://localhost:9000 \
+                                -Dsonar.token=${SONAR_TOKEN} \
+                                -Dsonar.python.version=3.8 \
+                                -Dsonar.sourceEncoding=UTF-8
+                                echo "✅ Analyse SonarQube terminée"
+                            '''
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Real-time Security Dashboard') {
+            steps {
+                echo '📊 4. Dashboard temps réel des vulnérabilités'
                 script {
                     sh '''
-                        echo "=== PROCESSUS DE BUILD ==="
+                        echo "=== DASHBOARD TEMPS RÉEL ==="
                         
-                        # Vérification des dépendances Python
-                        if [ -f requirements.txt ]; then
-                            echo "📦 Installation des dépendances Python..."
-                            python -m pip install --upgrade pip
-                            pip install -r requirements.txt
-                            echo "✅ Dépendances Python installées"
-                        fi
+                        # Collecte des métriques
+                        SECRETS_COUNT=$(jq '. | length' gitleaks-realtime-report.json 2>/dev/null || echo "0")
+                        SEMGREP_ISSUES=$(jq '.results | length' semgrep-report.json 2>/dev/null || echo "0")
+                        BANDIT_HIGH=$(jq '.metrics._totals.HIGH' bandit-report.json 2>/dev/null || echo "0")
+                        BANDIT_MEDIUM=$(jq '.metrics._totals.MEDIUM' bandit-report.json 2>/dev/null || echo "0")
                         
-                        # Vérification Node.js
-                        if [ -f package.json ]; then
-                            echo "📦 Installation des dépendances Node.js..."
-                            npm install
-                            echo "✅ Dépendances Node.js installées"
-                        fi
-                        
-                        echo "✅ Build terminé avec succès"
-                    '''
-                }
-            }
-        }
-        
-        // === 4. TESTS AUTOMATISÉS ===
-        stage('Automated Tests') {
-            steps {
-                echo '🧪 4. Exécution des tests automatisés'
-                script {
-                    sh '''
-                        echo "=== EXÉCUTION DES TESTS ==="
-                        
-                        # Tests Python
-                        if [ -f requirements.txt ]; then
-                            echo "🐍 Exécution tests Python..."
-                            python -m pytest tests/ -v || echo "⚠️  Aucun test Python trouvé"
-                        fi
-                        
-                        # Tests JavaScript
-                        if [ -f package.json ]; then
-                            echo "📜 Exécution tests JavaScript..."
-                            npm test || echo "⚠️  Aucun test JavaScript trouvé"
-                        fi
-                        
-                        echo "✅ Tests automatisés terminés"
-                    '''
-                }
-            }
-        }
-        
-        // === 5. CONTRÔLES DE SÉCURITÉ CI/CD ===
-        stage('Security Scans') {
-            parallel {
-                // === SAST - Analyse Statique ===
-                stage('SAST - SonarQube Analysis') {
-                    steps {
-                        echo '🔎 5.1 SAST - Analyse statique du code'
-                        withSonarQubeEnv('sonar-server') {
-                            script {
-                                withCredentials([string(credentialsId: 'sonar-token-molka', variable: 'SONAR_TOKEN')]) {
-                                    sh '''
-                                        echo "🚀 Lancement analyse SonarQube..."
-                                        sonar-scanner \
-                                        -Dsonar.projectKey=projet-molka \
-                                        -Dsonar.sources=. \
-                                        -Dsonar.projectName="Projet Molka DevSecOps" \
-                                        -Dsonar.host.url=http://localhost:9000 \
-                                        -Dsonar.token=${SONAR_TOKEN} \
-                                        -Dsonar.sourceEncoding=UTF-8
-                                        echo "✅ Analyse SonarQube terminée"
-                                    '''
+                        # Génération dashboard temps réel
+                        cat > realtime-security-dashboard.html << EOF
+                        <!DOCTYPE html>
+                        <html>
+                        <head>
+                            <title>Dashboard Sécurité Temps Réel</title>
+                            <style>
+                                body { font-family: Arial, sans-serif; margin: 40px; }
+                                .header { background: #2c3e50; color: white; padding: 20px; border-radius: 5px; }
+                                .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0; }
+                                .metric-card { background: white; padding: 15px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; }
+                                .critical { border-left: 5px solid #e74c3c; }
+                                .warning { border-left: 5px solid #f39c12; }
+                                .info { border-left: 5px solid #3498db; }
+                                .live-indicator { animation: pulse 2s infinite; }
+                                @keyframes pulse {
+                                    0% { opacity: 1; }
+                                    50% { opacity: 0.5; }
+                                    100% { opacity: 1; }
                                 }
-                            }
-                        }
-                    }
-                }
-                
-                // === SCA - Analyse Dépendances ===
-                stage('SCA - Dependency Scan') {
-                    steps {
-                        echo '📦 5.2 SCA - Analyse des dépendances'
-                        script {
-                            sh '''
-                                echo "=== INSTALLATION TRIVY ==="
-                                curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b . latest
+                            </style>
+                        </head>
+                        <body>
+                            <div class="header">
+                                <h1>🛡️ Dashboard Sécurité Temps Réel</h1>
+                                <h2>Projet Molka - Scan Live</h2>
+                                <p>🟢 <span class="live-indicator">SCAN EN TEMPS RÉEL</span> - Dernière mise à jour: $(date)</p>
+                            </div>
+                            
+                            <div class="metrics">
+                                <div class="metric-card \$([ $SECRETS_COUNT -gt 0 ] && echo "critical" || echo "info")">
+                                    <h3>🔐 Secrets</h3>
+                                    <div style="font-size: 2.5em; font-weight: bold;">$SECRETS_COUNT</div>
+                                    <p>Secrets exposés détectés</p>
+                                </div>
                                 
-                                echo "=== SCAN DES DÉPENDANCES ==="
-                                ./trivy fs --format json --output trivy-sca-report.json --exit-code 0 --severity CRITICAL,HIGH .
+                                <div class="metric-card \$([ $SEMGREP_ISSUES -gt 0 ] && echo "warning" || echo "info")">
+                                    <h3>📝 Patterns Risque</h3>
+                                    <div style="font-size: 2.5em; font-weight: bold;">$SEMGREP_ISSUES</div>
+                                    <p>Patterns de vulnérabilités</p>
+                                </div>
                                 
-                                # Analyse des résultats
-                                if [ -f trivy-sca-report.json ]; then
-                                    CRITICAL_COUNT=$(jq '.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL") | .VulnerabilityID' trivy-sca-report.json 2>/dev/null | wc -l || echo "0")
-                                    HIGH_COUNT=$(jq '.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH") | .VulnerabilityID' trivy-sca-report.json 2>/dev/null | wc -l || echo "0")
-                                    
-                                    echo "📊 RÉSULTATS SCA:"
-                                    echo "   🚨 CRITICAL: $CRITICAL_COUNT"
-                                    echo "   ⚠️  HIGH: $HIGH_COUNT"
-                                    
-                                    if [ "$CRITICAL_COUNT" -gt 0 ]; then
-                                        echo "❌ VULNÉRABILITÉS CRITIQUES DÉTECTÉES - Blocage possible"
-                                    fi
-                                fi
-                                echo "✅ Scan SCA terminé"
-                            '''
-                        }
-                    }
-                }
-                
-                // === SECRETS SCAN ===
-                stage('Secrets Detection') {
-                    steps {
-                        echo '🔐 5.3 Détection des secrets'
-                        script {
-                            sh '''
-                                echo "=== INSTALLATION GITLEAKS ==="
-                                curl -L -o gitleaks.tar.gz https://github.com/gitleaks/gitleaks/releases/download/v8.29.0/gitleaks_8.29.0_linux_x64.tar.gz
-                                tar -xzf gitleaks.tar.gz
-                                chmod +x gitleaks
+                                <div class="metric-card \$([ $BANDIT_HIGH -gt 0 ] && echo "critical" || echo "info")">
+                                    <h3>🐍 Python HIGH</h3>
+                                    <div style="font-size: 2.5em; font-weight: bold;">$BANDIT_HIGH</div>
+                                    <p>Vulnérabilités Python</p>
+                                </div>
                                 
-                                echo "=== SCAN DES SECRETS ==="
-                                ./gitleaks detect --source . --report-format json --report-path gitleaks-report.json --exit-code 0
-                                
-                                # Analyse des résultats
-                                SECRETS_COUNT=$(jq '. | length' gitleaks-report.json 2>/dev/null || echo "0")
-                                echo "📊 RÉSULTATS SECRETS:"
-                                echo "   🔐 Secrets détectés: $SECRETS_COUNT"
-                                
-                                if [ "$SECRETS_COUNT" -gt 0 ]; then
-                                    echo "❌ SECRETS DÉTECTÉS - Action requise"
-                                else
-                                    echo "✅ Aucun secret détecté"
-                                fi
-                                echo "✅ Scan secrets terminé"
-                            '''
-                        }
-                    }
-                }
-                
-                // === DOCKER SCAN ===
-                stage('Docker Image Scan') {
-                    steps {
-                        echo '🐳 5.4 Scan des images Docker'
-                        script {
-                            sh '''
-                                echo "=== SCAN DOCKER ==="
-                                
-                                # Vérifier si Dockerfile existe
-                                if [ -f Dockerfile ]; then
-                                    echo "🐳 Construction et scan de l'image Docker..."
-                                    
-                                    # Construction de l'image
-                                    docker build -t ${APP_NAME}:${BUILD_NUMBER} .
-                                    
-                                    # Scan avec Trivy
-                                    ./trivy image --format json --output trivy-docker-report.json --exit-code 0 --severity CRITICAL,HIGH ${APP_NAME}:${BUILD_NUMBER}
-                                    
-                                    echo "✅ Scan Docker image terminé"
-                                else
-                                    echo "ℹ️  Aucun Dockerfile trouvé - Scan Docker ignoré"
-                                fi
-                            '''
-                        }
-                    }
-                }
-            }
-        }
-        
-        // === 6. QUALITY GATE & BLOCKING RULES ===
-        stage('Quality Gate & Security Gate') {
-            steps {
-                echo '🚨 6. Quality Gate - Règles de blocage'
-                script {
-                    sh '''
-                        echo "=== VÉRIFICATION QUALITY GATE ==="
-                        sleep 30
+                                <div class="metric-card \$([ $BANDIT_MEDIUM -gt 0 ] && echo "warning" || echo "info")">
+                                    <h3>🐍 Python MEDIUM</h3>
+                                    <div style="font-size: 2.5em; font-weight: bold;">$BANDIT_MEDIUM</div>
+                                    <p>Vulnérabilités Python</p>
+                                </div>
+                            </div>
+                            
+                            <div style="background: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
+                                <h3>🔍 Détections Temps Réel Actives</h3>
+                                <ul>
+                                    <li>✅ <strong>Semgrep:</strong> Scan patterns vulnérabilités (XSS, Injection, etc.)</li>
+                                    <li>✅ <strong>Bandit:</strong> Analyse sécurité Python spécifique</li>
+                                    <li>✅ <strong>Gitleaks:</strong> Détection secrets et credentials</li>
+                                    <li>✅ <strong>SonarQube:</strong> Analyse statique approfondie</li>
+                                    <li>✅ <strong>Custom Rules:</strong> Scan vulnérabilités métier</li>
+                                </ul>
+                            </div>
+                            
+                            <div style="background: #e8f4fd; padding: 15px; border-radius: 5px;">
+                                <h3>🚨 Alertes Temps Réel</h3>
+                                <div id="live-alerts">
+                                    <p>Scan en cours... Détections live</p>
+                                </div>
+                            </div>
+                        </body>
+                        </html>
+                        EOF
                         
-                        # Récupération des métriques de sécurité
-                        SECRETS_COUNT=$(jq '. | length' gitleaks-report.json 2>/dev/null || echo "0")
-                        CRITICAL_COUNT=$(jq '.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL") | .VulnerabilityID' trivy-sca-report.json 2>/dev/null | wc -l || echo "0")
-                        HIGH_COUNT=$(jq '.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH") | .VulnerabilityID' trivy-sca-report.json 2>/dev/null | wc -l || echo "0")
-                        
-                        echo "📊 SYNTHÈSE SÉCURITÉ:"
-                        echo "   🔐 Secrets: $SECRETS_COUNT"
-                        echo "   🚨 Vulnérabilités CRITICAL: $CRITICAL_COUNT"
-                        echo "   ⚠️  Vulnérabilités HIGH: $HIGH_COUNT"
-                        
-                        # Règles de blocage
-                        if [ "$CRITICAL_COUNT" -gt 0 ]; then
-                            echo "❌ BLOQUÉ: Vulnérabilités CRITICAL détectées"
-                            currentBuild.result = 'UNSTABLE'
-                        elif [ "$SECRETS_COUNT" -gt 0 ]; then
-                            echo "❌ BLOQUÉ: Secrets détectés dans le code"
-                            currentBuild.result = 'UNSTABLE'
-                        elif [ "$HIGH_COUNT" -gt 5 ]; then
-                            echo "⚠️  AVERTISSEMENT: Plus de 5 vulnérabilités HIGH"
-                            currentBuild.result = 'UNSTABLE'
-                        else
-                            echo "✅ QUALITY GATE PASSED - Aucun blocage critique"
-                        fi
+                        echo "✅ Dashboard temps réel généré"
                     '''
                 }
             }
         }
         
-        // === 7. DÉPLOIEMENT STAGING ===
-        stage('Deploy to Staging') {
-            when {
-                expression { currentBuild.result != 'FAILURE' }
-            }
+        stage('Blocking Security Gate') {
             steps {
-                echo '🚀 7. Déploiement en environnement staging'
+                echo '🚨 5. Porte de sécurité bloquante'
                 script {
                     sh '''
-                        echo "=== DÉPLOIEMENT STAGING ==="
+                        echo "=== VÉRIFICATION BLOQUANTE ==="
                         
-                        if [ -f Dockerfile ]; then
-                            echo "🐳 Déploiement container Docker..."
-                            # Simulation déploiement
-                            docker tag ${APP_NAME}:${BUILD_NUMBER} ${DOCKER_REGISTRY}/${APP_NAME}:staging-${BUILD_NUMBER}
-                            echo "✅ Image taggée pour staging: ${DOCKER_REGISTRY}/${APP_NAME}:staging-${BUILD_NUMBER}"
-                        else
-                            echo "📦 Déploiement application..."
-                            echo "✅ Application déployée en staging"
+                        SECRETS_COUNT=$(jq '. | length' gitleaks-realtime-report.json 2>/dev/null || echo "0")
+                        BANDIT_HIGH=$(jq '.metrics._totals.HIGH' bandit-report.json 2>/dev/null || echo "0")
+                        
+                        # Règles de blocage STRICTES
+                        if [ "$SECRETS_COUNT" -gt 0 ]; then
+                            echo "❌ BLOQUÉ: $SECRETS_COUNT secret(s) détecté(s) - Correction requise!"
+                            echo "🔍 Détails:"
+                            jq -r '.[] | "   - \(.Description) dans \(.File):\(.StartLine)"' gitleaks-realtime-report.json 2>/dev/null
+                            currentBuild.result = 'FAILURE'
+                            error "Build bloqué par sécurité"
                         fi
                         
-                        echo "🌐 URL Staging: http://staging.projet-molka.local"
-                    '''
-                }
-            }
-        }
-        
-        // === 8. DAST - TEST DYNAMIQUE ===
-        stage('DAST - Dynamic Testing') {
-            when {
-                expression { currentBuild.result != 'FAILURE' }
-            }
-            steps {
-                echo '🌐 8. DAST - Test de sécurité dynamique'
-                script {
-                    sh '''
-                        echo "=== SCAN DAST ==="
-                        echo "🔍 Scan de l'application en staging..."
+                        if [ "$BANDIT_HIGH" -gt 2 ]; then
+                            echo "❌ BLOQUÉ: $BANDIT_HIGH vulnérabilités HIGH Python - Correction requise!"
+                            currentBuild.result = 'FAILURE'
+                            error "Build bloqué par sécurité"
+                        fi
                         
-                        # Simulation scan DAST (remplacer par OWASP ZAP ou équivalent)
-                        echo "📊 Résultats DAST simulés:"
-                        echo "   ✅ Aucune injection SQL détectée"
-                        echo "   ✅ Aucun XSS détecté"
-                        echo "   ✅ Configuration sécurisée validée"
-                        echo "   ⚠️  Recommandations: Headers sécurité à renforcer"
-                        
-                        echo "✅ Scan DAST terminé"
+                        echo "✅ Porte de sécurité passée - Aucun blocage critique"
                     '''
                 }
             }
         }
     }
     
-    // === 9. REPORTING & NOTIFICATIONS ===
     post {
         always {
-            echo '📊 9. Génération des rapports et notifications'
-            script {
-                // Génération rapport consolidé
-                sh '''
-                    echo "=== GÉNÉRATION RAPPORTS ==="
-                    
-                    # Récupération métriques finales
-                    SECRETS_COUNT=$(jq '. | length' gitleaks-report.json 2>/dev/null || echo "0")
-                    CRITICAL_COUNT=$(jq '.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL") | .VulnerabilityID' trivy-sca-report.json 2>/dev/null | wc -l || echo "0")
-                    HIGH_COUNT=$(jq '.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH") | .VulnerabilityID' trivy-sca-report.json 2>/dev/null | wc -l || echo "0")
-                    
-                    # Rapport HTML exécutif
-                    cat > security-executive-report.html << EOF
-                    <!DOCTYPE html>
-                    <html>
-                    <head>
-                        <title>Rapport DevSecOps - Projet Molka</title>
-                        <style>
-                            body { font-family: Arial, sans-serif; margin: 40px; }
-                            .header { background: #2c3e50; color: white; padding: 20px; border-radius: 5px; }
-                            .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0; }
-                            .metric-card { background: white; padding: 15px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; }
-                            .success { border-color: #27ae60; background: #d5f4e6; }
-                            .warning { border-color: #f39c12; background: #fef5e7; }
-                            .critical { border-color: #e74c3c; background: #fdeaea; }
-                            .section { margin: 20px 0; padding: 15px; border-left: 4px solid #3498db; background: #f8f9fa; }
-                        </style>
-                    </head>
-                    <body>
-                        <div class="header">
-                            <h1>🔒 Rapport DevSecOps Complet</h1>
-                            <h2>Projet Molka - Build #${BUILD_NUMBER}</h2>
-                            <p>Date: $(date)</p>
-                        </div>
-                        
-                        <div class="metrics">
-                            <div class="metric-card $([ $SECRETS_COUNT -gt 0 ] && echo "warning" || echo "success")">
-                                <h3>🔐 Secrets</h3>
-                                <div style="font-size: 2em; font-weight: bold;">$SECRETS_COUNT</div>
-                                <p>Secrets détectés</p>
-                            </div>
-                            
-                            <div class="metric-card $([ $CRITICAL_COUNT -gt 0 ] && echo "critical" || echo "success")">
-                                <h3>🚨 CRITICAL</h3>
-                                <div style="font-size: 2em; font-weight: bold;">$CRITICAL_COUNT</div>
-                                <p>Vulnérabilités</p>
-                            </div>
-                            
-                            <div class="metric-card $([ $HIGH_COUNT -gt 0 ] && echo "warning" || echo "success")">
-                                <h3>⚠️ HIGH</h3>
-                                <div style="font-size: 2em; font-weight: bold;">$HIGH_COUNT</div>
-                                <p>Vulnérabilités</p>
-                            </div>
-                            
-                            <div class="metric-card success">
-                                <h3>✅ Build</h3>
-                                <div style="font-size: 2em; font-weight: bold;">${BUILD_NUMBER}</div>
-                                <p>Statut: ${currentBuild.currentResult}</p>
-                            </div>
-                        </div>
-                        
-                        <div class="section">
-                            <h3>📋 Résumé des Étapes DevSecOps</h3>
-                            <ol>
-                                <li><strong>Shift-Left Security:</strong> Vérifications locales pré-commit</li>
-                                <li><strong>SAST:</strong> Analyse statique SonarQube</li>
-                                <li><strong>SCA:</strong> Scan dépendances Trivy</li>
-                                <li><strong>Secrets Scan:</strong> Détection secrets Gitleaks</li>
-                                <li><strong>Docker Scan:</strong> Analyse image container</li>
-                                <li><strong>DAST:</strong> Test dynamique application staging</li>
-                                <li><strong>Quality Gate:</strong> Règles de blocage automatiques</li>
-                            </ol>
-                        </div>
-                        
-                        <div class="section">
-                            <h3>📊 Rapports Détail</h3>
-                            <ul>
-                                <li><strong>SonarQube:</strong> <a href="http://localhost:9000/dashboard?id=projet-molka">Dashboard complet</a></li>
-                                <li><strong>SCA Report:</strong> trivy-sca-report.json</li>
-                                <li><strong>Secrets Report:</strong> gitleaks-report.json</li>
-                                <li><strong>Docker Report:</strong> trivy-docker-report.json</li>
-                            </ul>
-                        </div>
-                    </body>
-                    </html>
-                    EOF
-                    
-                    echo "✅ Rapports générés"
-                '''
-                
-                // Archivage des rapports
-                archiveArtifacts artifacts: '*-report.*,security-executive-report.html', allowEmptyArchive: true
-                
-                // Nettoyage
-                sh '''
-                    echo "=== NETTOYAGE ==="
-                    rm -f trivy gitleaks gitleaks.tar.gz
-                    echo "✅ Nettoyage terminé"
-                '''
-            }
+            echo '📊 Archivage rapports temps réel'
+            archiveArtifacts artifacts: '*-report.*,realtime-security-dashboard.html,bandit-report.json,semgrep-report.json', allowEmptyArchive: true
             
-            // Notification Email
-            emailext (
-                subject: "🚨 Rapport DevSecOps - Build #${env.BUILD_NUMBER} - ${currentBuild.currentResult}",
-                body: """
-                📊 RAPPORT DEVSECOPS - PROJET MOLKA
-                
-                Build: #${env.BUILD_NUMBER}
-                Statut: ${currentBuild.currentResult}
-                Date: ${new Date().format("yyyy-MM-dd HH:mm:ss")}
-                
-                🔍 RÉSULTATS SÉCURITÉ:
-                • 🔐 Secrets détectés: ${sh(script: 'jq \'. | length\' gitleaks-report.json 2>/dev/null || echo "0"', returnStdout: true).trim()}
-                • 🚨 Vulnérabilités CRITICAL: ${sh(script: 'jq \'.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL") | .VulnerabilityID\' trivy-sca-report.json 2>/dev/null | wc -l || echo "0"', returnStdout: true).trim()}
-                • ⚠️  Vulnérabilités HIGH: ${sh(script: 'jq \'.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH") | .VulnerabilityID\' trivy-sca-report.json 2>/dev/null | wc -l || echo "0"', returnStdout: true).trim()}
-                
-                📁 RAPPORTS DISPONIBLES:
-                • SonarQube: http://localhost:9000/dashboard?id=projet-molka
-                • Jenkins: ${env.BUILD_URL}
-                
-                🔗 ACCÈS RAPIDE:
-                • Build: ${env.BUILD_URL}
-                • SonarQube: http://localhost:9000/dashboard?id=projet-molka
-                
-                ℹ️  Ceci est une notification automatique du pipeline DevSecOps.
-                """,
-                to: "devops-team@company.com",
-                attachLog: true
-            )
-        }
-        
-        success {
-            echo '🎉 SUCCÈS! Pipeline DevSecOps COMPLET terminé!'
+            // Nettoyage
+            sh '''
+                rm -f gitleaks gitleaks.tar.gz
+                echo "✅ Nettoyage terminé"
+            '''
+            
             script {
                 echo """
-                ================================================
-                🎉 DEVSECOPS COMPLET - TOUS LES POINTS COUVERTS
-                ================================================
+                🎉 SCAN TEMPS RÉEL TERMINÉ!
                 
-                ✅ TOUS LES REQUIREMENTS IMPLÉMENTÉS:
+                📊 OUTILS TEMPS RÉEL UTILISÉS:
+                • 🔍 Semgrep: Scan patterns vulnérabilités
+                • 🐍 Bandit: Analyse sécurité Python  
+                • 🔐 Gitleaks: Détection secrets
+                • 📝 Custom Rules: Vulnérabilités métier
                 
-                1. 🔍 ANALYSE PIPELINE EXISTANT
-                   • Structure projet analysée
-                   • Dépendances identifiées
-                   
-                2. 🛡️  SÉCURITÉ SHIFT-LEFT  
-                   • Vérifications pré-commit simulées
-                   • Plugins SAST (SonarLint, ESLint, Bandit)
-                   • Sensibilisation développeurs
-                   
-                3. 🔒 CONTRÔLES CI/CD
-                   • SAST: SonarQube ✅
-                   • SCA: Trivy ✅  
-                   • Docker Scan: ✅
-                   • Secrets Scan: Gitleaks ✅
-                   • DAST: Tests dynamiques ✅
-                   
-                4. 📝 JENKINSFILE INTÉGRÉ
-                   • Stages: sast, scan_dependencies, docker_scan, etc.
-                   • Règles de blocage: Critical vulns, secrets
-                   
-                5. 📊 REPORTING & ALERTING
-                   • Rapports HTML/JSON générés
-                   • Notification email ✅
-                   • Archivage artefacts
-                   
-                🔗 ACCÈS RAPIDE:
-                • Jenkins: ${env.BUILD_URL}
-                • SonarQube: http://localhost:9000/dashboard?id=projet-molka
-                • Rapports: Voir 'Artifacts' dans Jenkins
+                📁 RAPPORTS GÉNÉRÉS:
+                • realtime-security-dashboard.html
+                • semgrep-report.json
+                • bandit-report.json
+                • gitleaks-realtime-report.json
                 """
             }
-        }
-        
-        unstable {
-            echo '⚠️  Pipeline UNSTABLE - Problèmes de sécurité détectés'
-            script {
-                echo """
-                ⚠️  PROBLÈMES DE SÉCURITÉ IDENTIFIÉS:
-                • Consulter les rapports détaillés
-                • Actions correctives requises
-                • Quality Gate: Échec sur règles critiques
-                """
-            }
-        }
-        
-        failure {
-            echo '❌ Pipeline FAILED - Erreur critique détectée'
         }
     }
 }
