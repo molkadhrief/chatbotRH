@@ -8,7 +8,45 @@ pipeline {
     }
     
     stages {
-        // [Les stages checkout et installation restent identiques...]
+        stage('Checkout') {
+            steps { 
+                echo '🔍 1. Checkout du code source'
+                checkout scm 
+            }
+        }
+        
+        stage('Install Security Tools') {
+            steps {
+                echo '🛠️ 2. Installation outils de sécurité'
+                script {
+                    sh '''
+                        echo "=== INSTALLATION OUTILS DEVSECOPS LINUX ==="
+                        
+                        # Installation Trivy
+                        curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b . latest
+                        ./trivy --version
+                        
+                        # Installation Gitleaks
+                        curl -L -o gitleaks.tar.gz https://github.com/gitleaks/gitleaks/releases/download/v8.29.0/gitleaks_8.29.0_linux_x64.tar.gz
+                        tar -xzf gitleaks.tar.gz
+                        chmod +x gitleaks
+                        ./gitleaks version
+                        
+                        # Installation Bandit pour Python avec gestion du PATH
+                        echo "=== INSTALLATION BANDIT ==="
+                        pip3 install bandit safety semgrep
+                        
+                        # Vérification de l'installation
+                        echo "=== VÉRIFICATION INSTALLATION ==="
+                        ./trivy --version && echo "✅ Trivy OK"
+                        ./gitleaks version && echo "✅ Gitleaks OK"
+                        python3 -m bandit --version && echo "✅ Bandit disponible via python3 -m"
+                        
+                        echo "✅ Outils sécurité installés"
+                    '''
+                }
+            }
+        }
         
         stage('Security Scans') {
             parallel {
@@ -45,14 +83,14 @@ pipeline {
                                 
                                 # Analyse enrichie des résultats
                                 if [ -f trivy-sca-report.json ]; then
-                                    CRITICAL_COUNT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' trivy-sca-report.json 2>/dev/null || echo "0")
-                                    HIGH_COUNT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH")] | length' trivy-sca-report.json 2>/dev/null || echo "0")
-                                    MEDIUM_COUNT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "MEDIUM")] | length' trivy-sca-report.json 2>/dev/null || echo "0")
-                                    LOW_COUNT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "LOW")] | length' trivy-sca-report.json 2>/dev/null || echo "0")
+                                    CRITICAL_COUNT=$(jq "[.Results[]?.Vulnerabilities[]? | select(.Severity == \\\"CRITICAL\\\")] | length" trivy-sca-report.json 2>/dev/null || echo "0")
+                                    HIGH_COUNT=$(jq "[.Results[]?.Vulnerabilities[]? | select(.Severity == \\\"HIGH\\\")] | length" trivy-sca-report.json 2>/dev/null || echo "0")
+                                    MEDIUM_COUNT=$(jq "[.Results[]?.Vulnerabilities[]? | select(.Severity == \\\"MEDIUM\\\")] | length" trivy-sca-report.json 2>/dev/null || echo "0")
+                                    LOW_COUNT=$(jq "[.Results[]?.Vulnerabilities[]? | select(.Severity == \\\"LOW\\\")] | length" trivy-sca-report.json 2>/dev/null || echo "0")
                                     TOTAL_COUNT=$((CRITICAL_COUNT + HIGH_COUNT + MEDIUM_COUNT + LOW_COUNT))
                                     
                                     # Extraction des vulnérabilités critiques pour le rapport
-                                    jq '.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL") | {VulnerabilityID, PkgName, Title, Description, Severity, FixedVersion}' trivy-sca-report.json > trivy-critical-details.json 2>/dev/null || echo "[]" > trivy-critical-details.json
+                                    jq ".Results[]?.Vulnerabilities[]? | select(.Severity == \\\"CRITICAL\\\") | {VulnerabilityID, PkgName, Title, Description, Severity, FixedVersion}" trivy-sca-report.json > trivy-critical-details.json 2>/dev/null || echo "[]" > trivy-critical-details.json
                                     
                                     echo "📊 RÉSULTATS TRIVY DÉTAILLÉS:"
                                     echo "   🚨 CRITICAL: $CRITICAL_COUNT"
@@ -75,15 +113,16 @@ pipeline {
                                 echo "=== SCAN SECRETS ENRICHIE ==="
                                 ./gitleaks detect --source . --report-format json --report-path gitleaks-report.json --exit-code 0
                                 
-                                SECRETS_COUNT=$(jq '. | length' gitleaks-report.json 2>/dev/null || echo "0")
+                                SECRETS_COUNT=$(jq ". | length" gitleaks-report.json 2>/dev/null || echo "0")
                                 
                                 # Analyse des types de secrets détectés
                                 if [ "$SECRETS_COUNT" -gt 0 ]; then
                                     # Création d'un résumé par type de secret
-                                    jq 'group_by(.RuleID) | map({rule: .[0].RuleID, count: length, description: .[0].Description})' gitleaks-report.json > gitleaks-summary.json 2>/dev/null || echo "[]" > gitleaks-summary.json
+                                    jq "group_by(.RuleID) | map({rule: .[0].RuleID, count: length, description: .[0].Description})" gitleaks-report.json > gitleaks-summary.json 2>/dev/null || echo "[]" > gitleaks-summary.json
                                     
                                     echo "❌ SECRETS DÉTECTÉS - $SECRETS_COUNT au total"
-                                    jq -r '.[] | "   • \(.rule): \(.count) occurrence(s)"' gitleaks-summary.json 2>/dev/null || echo "   ⚠️ Impossible d'analyser les détails"
+                                    # Utilisation de printf pour éviter les problèmes de guillemets
+                                    jq -r ".[] | \\\"   • \\\" + .rule + \\\": \\\" + (.count|tostring) + \\\" occurrence(s)\\\"" gitleaks-summary.json 2>/dev/null || echo "   ⚠️ Impossible d'analyser les détails"
                                 else
                                     echo "✅ Aucun secret détecté"
                                     echo "[]" > gitleaks-summary.json
@@ -113,25 +152,25 @@ pipeline {
                                     
                                     if [ -f bandit-report.json ]; then
                                         # Extraction des métriques détaillées
-                                        BANDIT_HIGH=$(jq '.metrics._totals.HIGH' bandit-report.json 2>/dev/null || echo "0")
-                                        BANDIT_MEDIUM=$(jq '.metrics._totals.MEDIUM' bandit-report.json 2>/dev/null || echo "0")
-                                        BANDIT_LOW=$(jq '.metrics._totals.LOW' bandit-report.json 2>/dev/null || echo "0")
-                                        BANDIT_CONFIDENCE_HIGH=$(jq '.metrics._totals."CONFIDENCE.HIGH"' bandit-report.json 2>/dev/null || echo "0")
-                                        BANDIT_CONFIDENCE_MEDIUM=$(jq '.metrics._totals."CONFIDENCE.MEDIUM"' bandit-report.json 2>/dev/null || echo "0")
-                                        BANDIT_CONFIDENCE_LOW=$(jq '.metrics._totals."CONFIDENCE.LOW"' bandit-report.json 2>/dev/null || echo "0")
+                                        BANDIT_HIGH=$(jq ".metrics._totals.HIGH" bandit-report.json 2>/dev/null || echo "0")
+                                        BANDIT_MEDIUM=$(jq ".metrics._totals.MEDIUM" bandit-report.json 2>/dev/null || echo "0")
+                                        BANDIT_LOW=$(jq ".metrics._totals.LOW" bandit-report.json 2>/dev/null || echo "0")
+                                        BANDIT_CONFIDENCE_HIGH=$(jq ".metrics._totals.\\\"CONFIDENCE.HIGH\\\"" bandit-report.json 2>/dev/null || echo "0")
+                                        BANDIT_CONFIDENCE_MEDIUM=$(jq ".metrics._totals.\\\"CONFIDENCE.MEDIUM\\\"" bandit-report.json 2>/dev/null || echo "0")
+                                        BANDIT_CONFIDENCE_LOW=$(jq ".metrics._totals.\\\"CONFIDENCE.LOW\\\"" bandit-report.json 2>/dev/null || echo "0")
                                         
                                         # Extraction des enjeux de sécurité HIGH
-                                        jq '.results[] | select(.issue_confidence == "HIGH" and .issue_severity == "HIGH") | {issue_text, filename, line_number, test_name}' bandit-report.json > bandit-critical-issues.json 2>/dev/null || echo "[]" > bandit-critical-issues.json
+                                        jq ".results[] | select(.issue_confidence == \\\"HIGH\\\" and .issue_severity == \\\"HIGH\\\") | {issue_text, filename, line_number, test_name}" bandit-report.json > bandit-critical-issues.json 2>/dev/null || echo "[]" > bandit-critical-issues.json
                                         
                                         echo "📊 Bandit - HIGH: $BANDIT_HIGH, MEDIUM: $BANDIT_MEDIUM, LOW: $BANDIT_LOW"
                                         echo "✅ Bandit scan enrichi terminé"
                                     else
-                                        echo '{"metrics": {"_totals": {"HIGH": 0, "MEDIUM": 0, "LOW": 0, "CONFIDENCE.HIGH": 0, "CONFIDENCE.MEDIUM": 0, "CONFIDENCE.LOW": 0}}}' > bandit-report.json
+                                        echo "{\\"metrics\\": {\\"_totals\\": {\\\"HIGH\\\": 0, \\\"MEDIUM\\\": 0, \\\"LOW\\\": 0, \\\"CONFIDENCE.HIGH\\\": 0, \\\"CONFIDENCE.MEDIUM\\\": 0, \\\"CONFIDENCE.LOW\\\": 0}}}" > bandit-report.json
                                         echo "[]" > bandit-critical-issues.json
                                     fi
                                 else
                                     echo "ℹ️  Aucun fichier Python trouvé"
-                                    echo '{"metrics": {"_totals": {"HIGH": 0, "MEDIUM": 0, "LOW": 0, "CONFIDENCE.HIGH": 0, "CONFIDENCE.MEDIUM": 0, "CONFIDENCE.LOW": 0}}}' > bandit-report.json
+                                    echo "{\\"metrics\\": {\\"_totals\\": {\\\"HIGH\\\": 0, \\\"MEDIUM\\\": 0, \\\"LOW\\\": 0, \\\"CONFIDENCE.HIGH\\\": 0, \\\"CONFIDENCE.MEDIUM\\\": 0, \\\"CONFIDENCE.LOW\\\": 0}}}" > bandit-report.json
                                     echo "[]" > bandit-critical-issues.json
                                 fi
                             '''
@@ -149,18 +188,18 @@ pipeline {
                         echo "=== GÉNÉRATION RAPPORTS JSON ENRICHIS ==="
                         
                         # Collecte métriques détaillées
-                        SECRETS_COUNT=$(jq '. | length' gitleaks-report.json 2>/dev/null || echo "0")
+                        SECRETS_COUNT=$(jq ". | length" gitleaks-report.json 2>/dev/null || echo "0")
                         SECRETS_SUMMARY=$(cat gitleaks-summary.json 2>/dev/null || echo "[]")
                         
-                        CRITICAL_COUNT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' trivy-sca-report.json 2>/dev/null || echo "0")
-                        HIGH_COUNT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH")] | length' trivy-sca-report.json 2>/dev/null || echo "0")
-                        MEDIUM_COUNT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "MEDIUM")] | length' trivy-sca-report.json 2>/dev/null || echo "0")
-                        LOW_COUNT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "LOW")] | length' trivy-sca-report.json 2>/dev/null || echo "0")
+                        CRITICAL_COUNT=$(jq "[.Results[]?.Vulnerabilities[]? | select(.Severity == \\\"CRITICAL\\\")] | length" trivy-sca-report.json 2>/dev/null || echo "0")
+                        HIGH_COUNT=$(jq "[.Results[]?.Vulnerabilities[]? | select(.Severity == \\\"HIGH\\\")] | length" trivy-sca-report.json 2>/dev/null || echo "0")
+                        MEDIUM_COUNT=$(jq "[.Results[]?.Vulnerabilities[]? | select(.Severity == \\\"MEDIUM\\\")] | length" trivy-sca-report.json 2>/dev/null || echo "0")
+                        LOW_COUNT=$(jq "[.Results[]?.Vulnerabilities[]? | select(.Severity == \\\"LOW\\\")] | length" trivy-sca-report.json 2>/dev/null || echo "0")
                         TRIVY_CRITICAL_DETAILS=$(cat trivy-critical-details.json 2>/dev/null || echo "[]")
                         
-                        BANDIT_HIGH=$(jq '.metrics._totals.HIGH' bandit-report.json 2>/dev/null || echo "0")
-                        BANDIT_MEDIUM=$(jq '.metrics._totals.MEDIUM' bandit-report.json 2>/dev/null || echo "0")
-                        BANDIT_LOW=$(jq '.metrics._totals.LOW' bandit-report.json 2>/dev/null || echo "0")
+                        BANDIT_HIGH=$(jq ".metrics._totals.HIGH" bandit-report.json 2>/dev/null || echo "0")
+                        BANDIT_MEDIUM=$(jq ".metrics._totals.MEDIUM" bandit-report.json 2>/dev/null || echo "0")
+                        BANDIT_LOW=$(jq ".metrics._totals.LOW" bandit-report.json 2>/dev/null || echo "0")
                         BANDIT_CRITICAL_ISSUES=$(cat bandit-critical-issues.json 2>/dev/null || echo "[]")
                         
                         # Calcul score de sécurité global (exemple simple)
@@ -215,15 +254,15 @@ pipeline {
   },
   "recommendations": {
     "immediate_actions": [
-      $(if [ "$CRITICAL_COUNT" -gt 0 ]; then echo "\"Mettre à jour les dépendances avec vulnérabilités CRITICAL\","; fi)
-      $(if [ "$SECRETS_COUNT" -gt 0 ]; then echo "\"Révoquer les secrets exposés et les régénérer\","; fi)
-      $(if [ "$BANDIT_HIGH" -gt 0 ]; then echo "\"Corriger les vulnérabilités Python de niveau HIGH\","; fi)
-      "\"Revoir la configuration de sécurité du projet\""
+      $(if [ "$CRITICAL_COUNT" -gt 0 ]; then echo "\\\"Mettre à jour les dépendances avec vulnérabilités CRITICAL\\\","; fi)
+      $(if [ "$SECRETS_COUNT" -gt 0 ]; then echo "\\\"Révoquer les secrets exposés et les régénérer\\\","; fi)
+      $(if [ "$BANDIT_HIGH" -gt 0 ]; then echo "\\\"Corriger les vulnérabilités Python de niveau HIGH\\\","; fi)
+      "\\\"Revoir la configuration de sécurité du projet\\\""
     ],
     "preventive_measures": [
-      "Intégrer les scans de sécurité dans le processus CI/CD",
-      "Former les développeurs aux bonnes pratiques de sécurité",
-      "Mettre en place des revues de code sécurité"
+      "\\\"Intégrer les scans de sécurité dans le processus CI/CD\\\"",
+      "\\\"Former les développeurs aux bonnes pratiques de sécurité\\\"",
+      "\\\"Mettre en place des revues de code sécurité\\\""
     ]
   }
 }
@@ -283,13 +322,29 @@ EOF
                 script {
                     sh '''
                         # Lecture des données depuis le JSON enrichi
-                        SECURITY_DATA=$(cat security-executive-report.json)
-                        SECURITY_SCORE=$(echo "$SECURITY_DATA" | jq -r '.metadata.security_score')
-                        OVERALL_STATUS=$(echo "$SECURITY_DATA" | jq -r '.metadata.overall_status')
-                        SECRETS_COUNT=$(echo "$SECURITY_DATA" | jq -r '.summary.secrets_detected')
-                        CRITICAL_COUNT=$(echo "$SECURITY_DATA" | jq -r '.summary.vulnerabilities.critical')
-                        HIGH_COUNT=$(echo "$SECURITY_DATA" | jq -r '.summary.vulnerabilities.high')
-                        BANDIT_HIGH=$(echo "$SECURITY_DATA" | jq -r '.summary.python_security.high')
+                        SECURITY_SCORE=$(jq ".metadata.security_score" security-executive-report.json 2>/dev/null || echo "0")
+                        OVERALL_STATUS=$(jq -r ".metadata.overall_status" security-executive-report.json 2>/dev/null || echo "UNKNOWN")
+                        SECRETS_COUNT=$(jq ".summary.secrets_detected" security-executive-report.json 2>/dev/null || echo "0")
+                        CRITICAL_COUNT=$(jq ".summary.vulnerabilities.critical" security-executive-report.json 2>/dev/null || echo "0")
+                        HIGH_COUNT=$(jq ".summary.vulnerabilities.high" security-executive-report.json 2>/dev/null || echo "0")
+                        BANDIT_HIGH=$(jq ".summary.python_security.high" security-executive-report.json 2>/dev/null || echo "0")
+                        BANDIT_MEDIUM=$(jq ".summary.python_security.medium" security-executive-report.json 2>/dev/null || echo "0")
+                        BANDIT_LOW=$(jq ".summary.python_security.low" security-executive-report.json 2>/dev/null || echo "0")
+                        
+                        # Détermination des statuts CSS
+                        SECRETS_STATUS=$([ "$SECRETS_COUNT" -gt 0 ] && echo "warning" || echo "success")
+                        CRITICAL_STATUS=$([ "$CRITICAL_COUNT" -gt 0 ] && echo "critical" || echo "success")
+                        HIGH_STATUS=$([ "$HIGH_COUNT" -gt 0 ] && echo "warning" || echo "success")
+                        BANDIT_STATUS=$([ "$BANDIT_HIGH" -gt 0 ] && echo "critical" || echo "success")
+                        
+                        # Détermination classe score
+                        if [ "$SECURITY_SCORE" -ge 80 ]; then
+                            SCORE_CLASS="excellent"
+                        elif [ "$SECURITY_SCORE" -ge 60 ]; then
+                            SCORE_CLASS="good"
+                        else
+                            SCORE_CLASS="poor"
+                        fi
                         
                         # Génération HTML avec données dynamiques
                         cat > security-executive-dashboard.html << EOF
@@ -299,12 +354,19 @@ EOF
     <title>Rapport Sécurité Complet - Projet Molka</title>
     <meta charset="UTF-8">
     <style>
-        /* [CSS identique mais amélioré...] */
-        .security-score {
-            font-size: 3em;
-            font-weight: bold;
-            margin: 20px 0;
-        }
+        body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
+        .header { background: #2c3e50; color: white; padding: 25px; border-radius: 10px; text-align: center; }
+        .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin: 30px 0; }
+        .metric-card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); text-align: center; }
+        .success { border-top: 5px solid #27ae60; }
+        .warning { border-top: 5px solid #f39c12; }
+        .critical { border-top: 5px solid #e74c3c; }
+        .metric-value { font-size: 2.5em; font-weight: bold; margin: 15px 0; }
+        .summary { background: white; padding: 25px; border-radius: 10px; margin: 20px 0; }
+        .status-success { color: #27ae60; font-weight: bold; }
+        .status-warning { color: #f39c12; font-weight: bold; }
+        .status-critical { color: #e74c3c; font-weight: bold; }
+        .security-score { font-size: 3em; font-weight: bold; margin: 20px 0; }
         .score-excellent { color: #27ae60; }
         .score-good { color: #f39c12; }
         .score-poor { color: #e74c3c; }
@@ -315,13 +377,71 @@ EOF
         <h1>🔒 RAPPORT DEVSECOPS COMPLET - V2</h1>
         <h2>Projet Molka - Analyse de Sécurité Avancée</h2>
         <p>Build ${BUILD_NUMBER} | ${BUILD_TIMESTAMP}</p>
-        <div class="security-score score-$([ $SECURITY_SCORE -ge 80 ] && echo "excellent" || [ $SECURITY_SCORE -ge 60 ] && echo "good" || echo "poor")">
+        <div class="security-score score-${SCORE_CLASS}">
             Score: ${SECURITY_SCORE}/100
         </div>
         <p>Statut Global: <strong class="status-${OVERALL_STATUS}">${OVERALL_STATUS}</strong></p>
     </div>
     
-    <!-- Contenu identique mais avec données dynamiques -->
+    <div class="metrics">
+        <div class="metric-card ${SECRETS_STATUS}">
+            <h3>🔐 Secrets</h3>
+            <div class="metric-value">${SECRETS_COUNT}</div>
+            <p>Secrets détectés</p>
+        </div>
+        
+        <div class="metric-card ${CRITICAL_STATUS}">
+            <h3>🚨 CRITICAL</h3>
+            <div class="metric-value">${CRITICAL_COUNT}</div>
+            <p>Vulnérabilités Trivy</p>
+        </div>
+        
+        <div class="metric-card ${HIGH_STATUS}">
+            <h3>⚠️ HIGH</h3>
+            <div class="metric-value">${HIGH_COUNT}</div>
+            <p>Vulnérabilités Trivy</p>
+        </div>
+        
+        <div class="metric-card ${BANDIT_STATUS}">
+            <h3>🐍 Bandit HIGH</h3>
+            <div class="metric-value">${BANDIT_HIGH}</div>
+            <p>Vulnérabilités Python</p>
+        </div>
+    </div>
+    
+    <div class="summary">
+        <h3>📋 SYNTHÈSE DE L'ANALYSE</h3>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+            <div>
+                <h4>✅ ANALYSES EFFECTUÉES</h4>
+                <ul>
+                    <li>🔎 SAST - SonarQube</li>
+                    <li>📦 SCA - Trivy (Dépendances)</li>
+                    <li>🔐 Secrets - Gitleaks</li>
+                    <li>🐍 Python - Bandit</li>
+                </ul>
+            </div>
+            <div>
+                <h4>📊 RÉSULTATS GLOBAUX</h4>
+                <ul>
+                    <li>Secrets détectés: <strong class="${SECRETS_STATUS}">${SECRETS_COUNT}</strong></li>
+                    <li>Vulnérabilités CRITICAL: <strong class="${CRITICAL_STATUS}">${CRITICAL_COUNT}</strong></li>
+                    <li>Vulnérabilités HIGH: <strong class="${HIGH_STATUS}">${HIGH_COUNT}</strong></li>
+                    <li>Bandit HIGH: <strong class="${BANDIT_STATUS}">${BANDIT_HIGH}</strong></li>
+                    <li>Bandit MEDIUM: <strong>${BANDIT_MEDIUM}</strong></li>
+                    <li>Bandit LOW: <strong>${BANDIT_LOW}</strong></li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    
+    <div style="background: #e8f4fd; padding: 20px; border-radius: 10px;">
+        <h3>🔗 ACCÈS AUX RAPPORTS</h3>
+        <p><strong>SonarQube Dashboard:</strong> <a href="http://localhost:9000/dashboard?id=projet-molka">http://localhost:9000/dashboard?id=projet-molka</a></p>
+        <p><strong>Jenkins Build:</strong> ${BUILD_URL}</p>
+        <p><strong>Rapport JSON:</strong> security-executive-report.json</p>
+        <p><strong>Dashboard Data:</strong> security-dashboard-data.json</p>
+    </div>
 </body>
 </html>
 EOF
@@ -337,24 +457,12 @@ EOF
             echo '📦 Archivage des rapports enrichis'
             archiveArtifacts artifacts: '*-report.json,*-summary.json,*-details.json,*-dashboard*.json,security-*.html', allowEmptyArchive: true
             
-            // Publication des rapports JSON pour intégration
-            script {
-                publishJSON target: [
-                    allowMissing: false,
-                    alwaysLinkToLastBuild: true,
-                    reportDir: '',
-                    reportFiles: 'security-executive-report.json,security-dashboard-data.json',
-                    reportName: 'Rapports Sécurité JSON'
-                ]
-            }
-            
             sh '''
                 echo "=== NETTOYAGE ==="
                 rm -f trivy gitleaks gitleaks.tar.gz
                 echo "✅ Nettoyage terminé"
             '''
             
-            // Affichage final enrichi
             script {
                 def execReport = readJSON file: 'security-executive-report.json'
                 def securityScore = execReport.metadata.security_score
@@ -409,10 +517,23 @@ EOF
                     Accès au rapport: ${env.BUILD_URL}
                     Dashboard SonarQube: http://localhost:9000/dashboard?id=projet-molka
                     """,
-                    to: "admin@example.com",
-                    attachmentsPattern: 'security-executive-report.json,security-executive-dashboard.html'
+                    to: "admin@example.com"
                 )
             }
+        }
+        
+        failure {
+            echo '❌ Pipeline échoué - Vérifier les logs pour détails'
+            emailext (
+                subject: "❌ ÉCHEC - Pipeline DevSecOps Projet Molka - Build ${env.BUILD_NUMBER}",
+                body: """
+                Le pipeline DevSecOps a échoué.
+                
+                Veuillez vérifier les logs Jenkins pour identifier le problème:
+                ${env.BUILD_URL}
+                """,
+                to: "admin@example.com"
+            )
         }
     }
 }
