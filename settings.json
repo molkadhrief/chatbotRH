@@ -1,0 +1,23 @@
+// Créer ce fichier: .vscode/settings.json
+{
+    "sonarlint.connectedMode.project": {
+        "connectionId": "sonar-molka",
+        "projectKey": "projet-molka"
+    },
+    "python.linting.enabled": true,
+    "python.linting.pylintEnabled": true,
+    "python.linting.banditEnabled": true,
+    "python.analysis.extraPaths": ["./src"],
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+        "source.fixAll": true,
+        "source.organizeImports": true
+    },
+    "files.exclude": {
+        "**/node_modules": true,
+        "**/*.pyc": true,
+        "**/__pycache__": true,
+        "**/.pytest_cache": true
+    },
+    "security.workspace.trust.untrustedFiles": "open"
+}
